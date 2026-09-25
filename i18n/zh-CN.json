@@ -214,5 +214,6 @@
   "ui.memory.backups.keep": "保留这一份",
   "ui.memory.backups.release": "取消保留",
   "ui.memory.backups.pinned": "已保留",
-  "ui.memory.backups.hint": "没标记的备份会按轮换到期被清掉，标记过的永久保留。"
+  "ui.memory.backups.hint": "没标记的备份会按轮换到期被清掉，标记过的永久保留。",
+  "errors.backupPinFailed": "这份备份确实存在，但标记写不进去 —— 请查看插件日志（多半是权限或磁盘空间）。"
 }

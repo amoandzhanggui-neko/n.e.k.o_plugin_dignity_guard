@@ -1787,10 +1787,15 @@ class DignityGuardPlugin(NekoPluginBase):
         # Treat that as the default (pin it), not as "release it".
         pinned = True if pinned is None else bool(pinned)
 
-        ok = await asyncio.to_thread(
-            set_pinned, self._memory_backup_root(), name, pinned=pinned
-        )
-        if not ok:
+        backup_root = self._memory_backup_root()
+        # 先在这儿把「名字根本不存在」判掉，这样 ``set_pinned`` 再返回 False，
+        # 原因就只可能是**写失败**（权限、磁盘满……）。
+        #
+        # 这两种失败差得很远：一个是用户打错字、另一个是环境出了问题。
+        # 原先两者共用一句 "没有叫 {name} 的备份"，于是磁盘写不进去时，
+        # 用户会被告知去核对一个**其实完全正确**的名字 —— 报出来的不是真原因，
+        # 正是这个插件立身要抓的那种毛病。
+        if not name or not (backup_root / name).is_dir():
             return Err(
                 SdkError(
                     self._text(
@@ -1802,6 +1807,21 @@ class DignityGuardPlugin(NekoPluginBase):
                         name=name,
                     ),
                     code="backup_not_found",
+                )
+            )
+        ok = await asyncio.to_thread(set_pinned, backup_root, name, pinned=pinned)
+        if not ok:
+            return Err(
+                SdkError(
+                    self._text(
+                        "errors.backupPinFailed",
+                        default=(
+                            "That backup exists, but the mark could not be written "
+                            "— check the plugin log (permissions or disk space)."
+                        ),
+                        name=name,
+                    ),
+                    code="backup_pin_failed",
                 )
             )
         return Ok(
@@ -2244,7 +2264,15 @@ class DignityGuardPlugin(NekoPluginBase):
 
         return Ok(
             {
-                "status": "planned" if dry_run else "restored",
+                # ``restored`` 只在**真有东西被放回去**时才说。``dry_run=False``
+                # 但一个文件都没还原（指定的 path 不在备份里、或全被 blocker 拦下）
+                # 的时候回 ``restored``，就是在报一件没有发生的事 —— 而这个插件
+                # 存在的意义正是抓别人这么干。``skipped`` 仍然照发，说明为什么。
+                "status": (
+                    "planned"
+                    if dry_run
+                    else ("restored" if planned else "nothing_restored")
+                ),
                 "backup": chosen,
                 "dry_run": dry_run,
                 "files": len(planned),

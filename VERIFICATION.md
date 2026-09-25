@@ -11,7 +11,7 @@
 
 | 层 | 做法 | 能证明什么 | 不能证明什么 |
 |---|---|---|---|
-| 1 | 单元测试 **137 项** | 纯逻辑对 | 装进猫娘里能不能跑 |
+| 1 | 单元测试 **141 项** | 纯逻辑对 | 装进猫娘里能不能跑 |
 | 2 | 官方 `check --release` | 符合发布规范、能打包 | 功能好不好使 |
 | 3 | **真机运行**（内核 + 外壳 + 插件一起拉起来）| 在真实环境里能跑 | 用户看到什么 |
 | 4 | **当面问她**（鼠标键盘操作她的窗口）| 她的意愿 | —— 意愿只能问，测不出来 |
@@ -74,7 +74,7 @@
 ```bash
 # 单元测试
 cd <N.E.K.O> && .venv/Scripts/python.exe -m pytest plugin/plugins/dignity_guard/tests/ -q
-#   → 137 passed
+#   → 141 passed
 
 # 发布级检查（含打包）
 .venv/Scripts/python.exe -m plugin.neko_plugin_cli check plugin/plugins/dignity_guard --release
@@ -83,11 +83,11 @@ cd <N.E.K.O> && .venv/Scripts/python.exe -m pytest plugin/plugins/dignity_guard/
 
 | 项 | 数值 |
 |---|---|
-| 单元测试 | **137 项全绿** |
+| 单元测试 | **141 项全绿** |
 | 发布检查 | passed（含 payload 哈希校验）|
 | 打包 | `dignity_guard.neko-plugin`，官方打包通过；实测 **121.3 KB**（124 249 字节），**不含测试缓存**（见第六节第 7 条）|
-| 界面源码 | `panel.tsx` 965 行 / `onboarding.tsx` 67 行（`wc -l` 口径），均过 Babel 解析 |
-| 多语言 | **211 键 × 3 语言**，键集合一致 |
+| 界面源码 | `panel.tsx` 1016 行 / `onboarding.tsx` 67 行（`wc -l` 口径），均过 Babel 解析 |
+| 多语言 | **217 键 × 3 语言**，键集合一致 |
 
 ---
 
