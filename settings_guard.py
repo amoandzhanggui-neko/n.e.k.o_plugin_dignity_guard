@@ -143,6 +143,21 @@ def _stored_float(value: Any, default: float = 0.0) -> float:
     return float(value)
 
 
+def _optional_stored_float(value: Any) -> float | None:
+    """Like :func:`_stored_float`, but a missing / junk value stays ``None``.
+
+    ``expires_at`` needs this: ``None`` there means "this grant never expires",
+    which is *not* the same as ``0.0`` ("expired at the epoch"). Running it
+    through ``_stored_float`` would turn a missing field into an already-expired
+    grant — silently revoking consent that the user actually gave.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
 def _stored_int(value: Any, default: int = 0) -> int:
     """Integer counterpart of :func:`_stored_float`, same reasoning."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -758,8 +773,12 @@ class AuthorizationLedger:
             grants.append(
                 Grant(
                     path=str(item["path"]),
-                    granted_at=float(item.get("granted_at") or 0.0),
-                    expires_at=None if expires is None else float(expires),
+                    # 裸 float() 会在遇到脏值（store 被手改 / 被别的版本写过）时抛
+                    # ValueError，而 _load_persisted_state 调用本函数时没有 try/except
+                    # —— 结果是 **on_startup 直接失败、插件起不来**。Dispute 那边
+                    # 早已改成防御式解析，这里当时漏了（"同一条只改了一处"）。
+                    granted_at=_stored_float(item.get("granted_at")),
+                    expires_at=_optional_stored_float(expires),
                     source=str(item.get("source") or "user"),
                 )
             )
@@ -943,6 +962,21 @@ class GuardState:
             dispute.status = "pending"
             dispute.seen_at = moment
             evaluation.raised.append(dispute)
+            # 也要进 ``changes``：``_persist_state`` 只在 ``has_changes`` 为真时才被
+            # 调用（``_run_poll`` 里），不进这里的话这次状态翻转**不落盘** ——
+            # 重启后 store 里仍是 "accepted"，一次有限期授权就变成了永久静默。
+            # 那正是 ``accept()`` 的 docstring 声称已经修好的那个 bug。
+            #
+            # before/after 都留 None：这不是"某个设置被改了"，而是"一条争议的
+            # 状态回到了待决"，没有可展示的前后值。
+            evaluation.changes.append(
+                SettingChange(
+                    path=dispute.path,
+                    level=dispute.level,
+                    before=None,
+                    after=None,
+                )
+            )
 
         # A dispute whose path is no longer present in the snapshot can never be
         # resolved by a later diff, so it would sit on her panel forever. That

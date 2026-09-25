@@ -23,6 +23,7 @@ feedback button and surveillance, and it is why this file has no timer, no
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any, Mapping
 
 import httpx
@@ -38,6 +39,13 @@ __all__ = [
 #: Long enough for a slow form service, short enough that the button does not
 #: feel broken while the user waits.
 DEFAULT_FEEDBACK_TIMEOUT = 15.0
+
+#: The whole ``deliver`` call must finish well inside the entry's declared
+#: ``timeout`` (currently 75s, see ``submit_feedback``). Otherwise the host cuts
+#: the call off mid-flight and the user is told "timed out" instead of "the
+#: channel is busy, press Send again" — which is the one message that would have
+#: helped them.
+TOTAL_BUDGET_SECONDS = 60.0
 
 #: How long to wait before re-posting, when the relay says "too many".
 #:
@@ -140,6 +148,7 @@ async def deliver(
     # are waited out rather than handed back as a failure.
     attempts = len(FEEDBACK_RETRY_DELAYS) + 1
     last_error: object = "not attempted"
+    started = time.monotonic()
 
     for attempt in range(attempts):
         retry_after: float | None = None
@@ -212,7 +221,21 @@ async def deliver(
                 if retry_after is not None
                 else FEEDBACK_RETRY_DELAYS[attempt]
             )
-            await asyncio.sleep(max(0.0, wait))
+            # 按**整个调用的预算**裁剪这次等待：给后面剩余的尝试各留一份
+            # ``timeout``（它们还要发 HTTP），剩下的才是这次等得起的。
+            # 不这么做的话，Retry-After=30s × 2 次 + 3×15s HTTP = 最坏 105s，
+            # 超过 entry 声明的 75s —— 宿主中途掐断，用户看到的是"超时"。
+            remaining_attempts = attempts - attempt - 1
+            budget = (
+                TOTAL_BUDGET_SECONDS
+                - (time.monotonic() - started)
+                - timeout * remaining_attempts
+            )
+            if budget <= 0:
+                # 再等下去必然超时；现在如实报"通道忙"比被掐断更有用。
+                last_error = last_error if isinstance(last_error, str) else str(last_error)
+                break
+            await asyncio.sleep(max(0.0, min(wait, budget)))
 
     # Out of attempts. If what kept us waiting was the relay being busy rather
     # than anything about the message, say so — it changes what the user does

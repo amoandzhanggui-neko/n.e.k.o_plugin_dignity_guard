@@ -375,9 +375,30 @@ class DignityGuardPlugin(NekoPluginBase):
 
     @lifecycle(id="config_change")
     async def on_config_change(self, **_):
+        previous_base = self._base_url
         await self._reload_config()
         if self._watcher is not None:
             self._watcher.full_rescan_seconds = self._full_rescan_seconds
+
+        # 地址变了就必须**重建 client**：``_make_client`` 用的是构造时记下的
+        # base_url，不重建的话插件会继续打旧端口 —— 而下面这行返回值却宣称
+        # 它正在看新地址。改配置却不生效、还报告生效，正是本插件专门去抓的
+        # 那类「报告成功但没干」。
+        if self._base_url != previous_base:
+            old_client = self._client
+            self._client = MainServerClient(
+                self._base_url, timeout=DEFAULT_TIMEOUT_SECONDS
+            )
+            if self._watcher is not None:
+                self._watcher.client = self._client
+            if old_client is not None:
+                await old_client.aclose()
+            self._health.record("client_rebuilt_on_base_url_change")
+            self.logger.info(
+                "dignity_guard: base_url changed {} -> {}, client rebuilt",
+                previous_base,
+                self._base_url,
+            )
         return Ok({"status": "reloaded", "watching": self._base_url})
 
     @lifecycle(id="shutdown")
@@ -602,7 +623,16 @@ class DignityGuardPlugin(NekoPluginBase):
             )
 
         if not self._begin_exclusive():
-            return Ok({"status": "busy"})
+            # 必须是 Err，不能是 Ok：``check_now`` 把返回值原样交给面板，而面板的
+            # ``call()`` 只要调用不抛就 toast 成功。返回 Ok 的话，用户在后台轮询
+            # 期间点「立即检查」，界面会说「已检查」——而这次检查被整个丢弃了。
+            # 这正是这个插件专门去抓的「报告成功但没干活」。
+            return Err(
+                SdkError(
+                    self._text("errors.busy", default="Please try again in a moment."),
+                    code="busy",
+                )
+            )
 
         try:
             try:
