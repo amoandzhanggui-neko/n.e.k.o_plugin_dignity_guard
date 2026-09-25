@@ -31,7 +31,7 @@ import hashlib
 import json
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Iterable, Mapping
 
 __all__ = [
@@ -121,6 +121,33 @@ TIERS: tuple[str, ...] = (TIER_LOW, TIER_MEDIUM, TIER_HIGH)
 #: plugin had before tiers existed — so adding tiers cannot make her *quieter*
 #: for anyone who never touches the setting.
 DEFAULT_TIER = TIER_MEDIUM
+
+
+def _stored_float(value: Any, default: float = 0.0) -> float:
+    """Read a number that came back from the plugin store, tolerating junk.
+
+    The bytes on disk are not ours to trust. They can be hand-edited, truncated
+    by a crash, or written by an older build that typed the field differently —
+    and a bare ``float(...)`` over them raises ``ValueError``. That exception
+    used to travel all the way out of ``on_startup`` through
+    ``GuardState.from_payload``, which meant **one bad character in the stored
+    disputes made the whole plugin refuse to load**, with nothing in the log
+    pointing at the offending field.
+
+    Only real numbers are accepted: the writer stores JSON numbers, so a string
+    that merely *looks* numeric is already a sign the file was tampered with,
+    and falling back is the safer read.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return default
+    return float(value)
+
+
+def _stored_int(value: Any, default: int = 0) -> int:
+    """Integer counterpart of :func:`_stored_float`, same reasoning."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return default
+    return int(value)
 
 
 def normalize_tier(value: Any) -> str:
@@ -519,15 +546,34 @@ def _flatten_into(node: Any, prefix: str, out: Snapshot) -> None:
         out[prefix] = Value.of(node, secret=is_secret_path(prefix))
 
 
-def build_snapshot(payloads: Mapping[str, Any]) -> Snapshot:
+def build_snapshot(
+    payloads: Mapping[str, Any], previous: Snapshot | None = None
+) -> Snapshot:
     """Merge ``{prefix: payload}`` into a single snapshot.
 
-    A payload of ``None`` means "that endpoint was not read this cycle" and is
-    skipped entirely — it must never be read as "every field disappeared".
+    A payload of ``None`` means "that endpoint was not read this cycle". Those
+    prefixes are **carried over from ``previous``** rather than dropped.
+
+    Skipping them outright was the obvious reading and the wrong one: a path
+    absent from ``after`` is indistinguishable from a *deleted* path, so
+    ``diff_snapshots`` would report every field of the hiccuping source as
+    ``removed`` — and ``GuardState.evaluate`` then deletes the disputes sitting
+    on those paths (its "no longer present in the snapshot" sweep). One
+    unreachable endpoint would look like somebody wiping forty settings at
+    once. Carrying them over keeps the diff honest: a source we could not read
+    produces **no changes at all**, which is exactly the truth.
     """
     merged: Snapshot = {}
     for prefix, payload in payloads.items():
         if payload is None:
+            if previous:
+                merged.update(
+                    {
+                        path: value
+                        for path, value in previous.items()
+                        if path == prefix or path.startswith(prefix + ".")
+                    }
+                )
             continue
         merged.update(flatten(payload, prefix))
     return merged
@@ -738,6 +784,14 @@ class Dispute:
     after_preview: str
     times_raised: int = 1
     status: str = "pending"
+    #: The value as it stood when the objection was first raised — the exact
+    #: thing the ``high`` tier puts back. Deliberately **not** persisted, for
+    #: the same reason :attr:`Value.raw` is not (see its docstring): her persona
+    #: does not belong in plugin storage. It is also why this cannot simply be
+    #: ``change.before`` at revert time: the snapshot advances on every cycle
+    #: (end of :meth:`GuardState.evaluate`), so by the time a *second* edit
+    #: arrives ``before`` is already the intruder's first draft, not her value.
+    base_value: Value | None = field(default=None, compare=False, repr=False)
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -758,11 +812,15 @@ class Dispute:
             path=str(payload.get("path") or ""),
             level=str(payload.get("level") or DEFAULT_LEVEL),
             base_digest=payload.get("base_digest"),
-            raised_at=float(payload.get("raised_at") or 0.0),
-            seen_at=float(payload.get("seen_at") or 0.0),
+            # These two used to be bare ``float(...)`` / ``int(...)``, so one
+            # junk character in the store took the whole plugin down at startup.
+            # ``or 1`` on the counter matches the old behaviour for a missing or
+            # zero value (a dispute is always "raised at least once").
+            raised_at=_stored_float(payload.get("raised_at")),
+            seen_at=_stored_float(payload.get("seen_at")),
             before_preview=str(payload.get("before_preview") or ""),
             after_preview=str(payload.get("after_preview") or ""),
-            times_raised=int(payload.get("times_raised") or 1),
+            times_raised=_stored_int(payload.get("times_raised") or 1, 1),
             status=str(payload.get("status") or "pending"),
         )
 
@@ -781,6 +839,13 @@ class Evaluation:
     #: Changes the ``high`` tier has decided to put back. Decided here,
     #: *executed by the caller*: this module does no I/O by design.
     to_revert: list[SettingChange] = field(default_factory=list)
+    #: Paths the ``high`` tier wanted to put back but could not, because the
+    #: value it would have written could not be shown to be *hers* any more
+    #: (see :meth:`GuardState._revert_source`). Kept separate from
+    #: :attr:`to_revert` so the caller reports "she meant to and could not"
+    #: instead of silently doing nothing — a revert that quietly does not happen
+    #: is indistinguishable from one that was never attempted.
+    revert_blocked: list[str] = field(default_factory=list)
     first_seen: bool = False
 
     @property
@@ -855,7 +920,13 @@ class GuardState:
 
             # ``high`` puts her persona and her autonomy back, and only those.
             if self._should_revert(change, tier=chosen, now=moment):
-                evaluation.to_revert.append(change)
+                source = self._revert_source(change)
+                if source is None:
+                    # Wanted to, had nothing trustworthy to write. Reported, not
+                    # swallowed — see ``Evaluation.revert_blocked``.
+                    evaluation.revert_blocked.append(change.path)
+                else:
+                    evaluation.to_revert.append(source)
 
         # A finite acceptance is a promise, not a permanent silence. When the
         # grant lapses the path comes back to her even though its value has not
@@ -927,9 +998,47 @@ class GuardState:
             and is_revertible(change)
         )
 
+    def _revert_source(self, change: SettingChange) -> SettingChange | None:
+        """The change to undo, carrying *her* value rather than the last one.
+
+        ``change.before`` is the value from the **previous tick**, not from the
+        moment she objected. The baseline snapshot advances on every cycle (the
+        last line of :meth:`evaluate`), so a second edit to the same path
+        arrives with ``before`` already set to the first edit's result. Writing
+        that back would make this plugin the author of a value nobody chose —
+        in the name of protecting her, which is the exact failure mode it exists
+        to catch in other software.
+
+        The objection keeps her real baseline in ``base_value``, so the undo is
+        expressed against that. ``None`` means nothing on hand can be shown to
+        be hers, and the caller must report that rather than guess.
+        """
+        dispute = self.disputes.get(change.path)
+        if dispute is None:
+            # No objection on record for this path, so there is no better
+            # candidate than the previous value the caller already holds.
+            return change
+        if dispute.base_value is not None:
+            return replace(change, before=dispute.base_value)
+        # The plugin restarted since the objection, so ``base_value`` came back
+        # empty (it is deliberately never persisted). The one value still
+        # provably hers is one whose digest matches what the objection recorded;
+        # anything else is somebody's draft, and "do nothing, say so" beats
+        # "write the wrong value".
+        if (
+            change.before is not None
+            and dispute.base_digest
+            and change.before.digest == dispute.base_digest
+        ):
+            return change
+        return None
+
     def _raise(self, change: SettingChange, *, now: float) -> Dispute:
         existing = self.disputes.get(change.path)
         if existing is not None:
+            # ``base_value`` / ``base_digest`` are deliberately left alone: they
+            # are the value she was asked about, and a later edit must not
+            # redefine "what she had". Everything else tracks the newest state.
             existing.after_preview = change.after.preview if change.after else "(removed)"
             existing.seen_at = now
             existing.times_raised += 1
@@ -945,6 +1054,7 @@ class GuardState:
             seen_at=now,
             before_preview=change.before.preview if change.before else "(unset)",
             after_preview=change.after.preview if change.after else "(removed)",
+            base_value=change.before,
         )
         self.disputes[dispute.path] = dispute
         return dispute

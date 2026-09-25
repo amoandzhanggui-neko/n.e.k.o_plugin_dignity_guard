@@ -118,7 +118,7 @@ cd <N.E.K.O> && .venv/Scripts/python.exe -m pytest plugin/plugins/dignity_guard/
 | 4 | **独立仓库已建，但 remote 未配置** | 2026-09-25 建立（初始提交，见 `git log`）；官方 check 现在提示的是 `git remote 'origin' is not configured` —— 需要你的 GitHub 仓库地址才能消掉 |
 | 5 | 界面在**真实分辨率/缩放**下的观感未逐项核对 | 只验了语法与组件契约，没做人眼级 UI 走查 |
 | 6 | 免注册**分段粘贴**这条路径未端到端跑通 | 两个前提**分别**验过（单次 ≤63 KB ✅、间隔 ≥12 秒 ✅），但"把一份长报告分几次真发完"没有整条实测 |
-| 7 | 交付包会带测试缓存 —— **已修，但依赖本地补丁** | `check --release` 的构建路径漏传 `source_only=True`，于是元数据探测子进程在暂存区写出 `__pycache__/*.pyc`，而最后导出 zip 那一步不做任何过滤（`neko_plugin_cli/core/build.py`）。**插件侧配置管不到这一层**（`tool.neko.build` 只作用于"复制"阶段）。已在本地给 `build_plugin` / `build_bundle` 各加 `source_only=True`（备份 `core/build.py.orig_20260925`）→ **202 KB / 7 个 pyc → 121 KB / 0 个 pyc**，`payload_hash_verified=True` 不变。⚠️ **用未打补丁的官方 CLI 重新打包会复发**，建议上游采纳这两行 |
+| 7 | 交付包会带测试缓存 —— **上游 CLI 的问题，影响已量化** | `check --release` 的构建路径漏传 `source_only=True`，元数据探测子进程于是在暂存区写出 `__pycache__/*.pyc`，而导出 zip 那一步不做任何过滤（`neko_plugin_cli/core/build.py`）。**插件侧配置管不到这一层**（`tool.neko.build` 只作用于“复制”阶段）。<br>**影响**：产物多 7 个 `.pyc`（202 KB vs 121 KB），**功能完全等价**，`payload_hash_verified=True` 不变 —— 这不是“产物不可复现”，而是“产物多带了缓存”。<br>**不依赖补丁的做法**：用官方 CLI 打包后，删掉产物里的 `__pycache__/` 再发布即可（已实测，不必改官方代码）。<br>本地补丁（`build_plugin` / `build_bundle` 各加 `source_only=True`，备份 `core/build.py.orig_20260925`）只是省掉这一步；**用未打补丁的官方 CLI 会复发**，所以已列入 `DESIGN.md` §7 要向官方提的清单 |
 
 ---
 

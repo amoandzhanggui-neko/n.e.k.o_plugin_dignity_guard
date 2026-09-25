@@ -39,6 +39,11 @@ class _Recorder(BaseHTTPRequestHandler):
     #: Refuse this many times before settling down — what a real rate limit looks
     #: like from the caller's side. Zero means "never busy".
     rate_limit_times: int = 0
+    #: Answer a body-level refusal this many times before settling down. Unlike
+    #: ``rate_limit_times`` the status stays 200 with success:false, which is the
+    #: trap this module must not mis-classify as a hard failure.
+    body_refusal_times: int = 0
+    body_refusal_body: dict = {}
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib naming
         length = int(self.headers.get("Content-Length") or 0)
@@ -47,11 +52,16 @@ class _Recorder(BaseHTTPRequestHandler):
         type(self).seen_referer.append(self.headers.get("Referer") or "")
 
         status = type(self).reply_status
+        body = type(self).reply_body
         if type(self).rate_limit_times > 0:
             type(self).rate_limit_times -= 1
             status = 429
+        elif type(self).body_refusal_times > 0:
+            type(self).body_refusal_times -= 1
+            status = 200
+            body = type(self).body_refusal_body
 
-        payload = json.dumps(type(self).reply_body).encode("utf-8")
+        payload = json.dumps(body).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
@@ -72,6 +82,8 @@ def endpoint():
     _Recorder.reply_status = 200
     _Recorder.reply_body = {}
     _Recorder.rate_limit_times = 0
+    _Recorder.body_refusal_times = 0
+    _Recorder.body_refusal_body = {}
     try:
         yield f"http://127.0.0.1:{server.server_port}/feedback"
     finally:
@@ -225,6 +237,52 @@ async def test_a_rate_limit_that_clears_is_delivered(endpoint: str, monkeypatch)
     finally:
         _Recorder.rate_limit_times = 0
     assert len(_Recorder.received) >= 1
+
+
+async def test_a_body_level_rate_limit_is_its_own_error(
+    endpoint: str, monkeypatch
+) -> None:
+    """A busy relay that answers 200 + success:false must not read as broken.
+
+    This is the path the old string match missed: the status code is 200, so the
+    verdict used to be FeedbackUndeliverable and the user was told to go hunt for
+    a problem with their text or network. The relay was merely busy. With the
+    explicit flag the right exception now fires, and it is waited out rather than
+    raised on the first try.
+    """
+    monkeypatch.setattr(feedback_module, "FEEDBACK_RETRY_DELAYS", (0.0, 0.0))
+    _Recorder.body_refusal_body = {"success": "false", "message": "Too many requests"}
+    # Refuse on every attempt so we exhaust the loop and reach the final verdict.
+    _Recorder.body_refusal_times = 3
+    try:
+        with pytest.raises(FeedbackRateLimited):
+            await deliver(endpoint, {"message": "hello"})
+    finally:
+        _Recorder.body_refusal_times = 0
+    # Three attempts means three posts went out, not one.
+    assert len(_Recorder.received) == 3
+
+
+async def test_a_body_level_real_refusal_is_not_retried(
+    endpoint: str, monkeypatch
+) -> None:
+    """A refusal that is not "slow down" is the truth, not a blip.
+
+    "Invalid form key" contains none of the rate-limit hints, so it must be
+    raised immediately as FeedbackUndeliverable — no waiting, no retries. This
+    guards the other edge of the body-level branch: only the *rate-sounding*
+    refusals get the forgiving treatment.
+    """
+    monkeypatch.setattr(feedback_module, "FEEDBACK_RETRY_DELAYS", (0.0, 0.0))
+    _Recorder.body_refusal_body = {"success": "false", "message": "Invalid form key"}
+    _Recorder.body_refusal_times = 3
+    try:
+        with pytest.raises(FeedbackUndeliverable):
+            await deliver(endpoint, {"message": "hello"})
+    finally:
+        _Recorder.body_refusal_times = 0
+    # Raised on the first attempt, so exactly one post should have been made.
+    assert len(_Recorder.received) == 1
 
 
 # ---------------------------------------------------------------------------

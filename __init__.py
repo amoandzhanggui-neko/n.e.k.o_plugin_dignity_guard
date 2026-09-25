@@ -24,6 +24,7 @@ import json
 import os
 import platform
 import secrets
+import threading
 import time
 from pathlib import Path
 from typing import Any, Mapping
@@ -298,8 +299,10 @@ class DignityGuardPlugin(NekoPluginBase):
         #: Outcome of the most recent revert attempt, per path. ``""`` means the
         #: value went back; anything else is a reason code the panel translates.
         self._revert_outcomes: dict[str, str] = {}
-        self._lock: asyncio.Lock | None = None
-        self._lock_loop: asyncio.AbstractEventLoop | None = None
+        # Replaces an ``asyncio.Lock``: see ``_begin_exclusive`` for why a lock
+        # with no event-loop affinity is the correct instrument here.
+        self._busy = False
+        self._busy_flag = threading.Lock()
 
         # Her memory lives outside the settings files, so it gets its own watch.
         # The root is resolved lazily: a plugin that cannot find her memory
@@ -342,6 +345,13 @@ class DignityGuardPlugin(NekoPluginBase):
             self._state,
             full_rescan_seconds=self._full_rescan_seconds,
         )
+        # ``_load_persisted_state`` above restored ``self._tier``, but the watcher
+        # was just built with its own default — and ``tier`` is the only thing
+        # that decides whether the high tier writes a field back. Without this
+        # line the panel says "high" while the watcher quietly runs "medium":
+        # the whole point of the high tier disappears on every restart, and
+        # nothing anywhere reports the disagreement.
+        self._watcher.tier = self._tier
         if not self.store.enabled:
             self._health.record("store_disabled")
             self.logger.warning(
@@ -432,20 +442,67 @@ class DignityGuardPlugin(NekoPluginBase):
     # ------------------------------------------------------------------
 
     async def _load_persisted_state(self) -> None:
-        payload = await self._store_read(STORE_KEY)
-        if isinstance(payload, dict):
-            self._state = GuardState.from_payload(payload)
-            self._enabled = bool(payload.get("guard_enabled", self._enabled_default))
-            self._disabled_at = _optional_float(payload.get("guard_disabled_at"))
-            self._off_since = _optional_float(payload.get("guard_off_since"))
-            self._disable_count = _non_negative_int(payload.get("guard_disable_count"))
-            self._last_off_seconds = _optional_float(payload.get("guard_last_off_seconds"))
-            self._tier = normalize_tier(payload.get("guard_tier", self._tier_default))
-            self._health = HealthLog.from_payload(payload.get("health"))
-        else:
+        self._user_locale = None
+        try:
+            payload = await self._store_read(STORE_KEY)
+            restored = (
+                self._parse_persisted(payload) if isinstance(payload, dict) else None
+            )
+        except Exception as error:  # noqa: BLE001
+            # A plugin whose whole purpose is catching "reported success but did
+            # nothing" cannot afford to die silently at startup. Any failure to
+            # read or parse the store degrades to empty defaults, loudly.
+            self._note_restore_failure(error)
+            restored = None
+
+        if restored is None:
             self._enabled = self._enabled_default
             self._tier = self._tier_default
-        self._user_locale = None
+        else:
+            (
+                self._state,
+                self._enabled,
+                self._disabled_at,
+                self._off_since,
+                self._disable_count,
+                self._last_off_seconds,
+                self._tier,
+                self._health,
+            ) = restored
+
+    def _parse_persisted(self, payload: dict[str, Any]) -> tuple[Any, ...]:
+        """Parse the stored blob into every field it carries, all or nothing.
+
+        Returning a tuple that the caller assigns only after the whole parse
+        succeeded matters: a half-applied restore would leave the panel showing
+        one tier while the watcher ran another — the exact split-brain that
+        ``on_startup`` sets ``self._watcher.tier`` to prevent.
+        """
+        return (
+            GuardState.from_payload(payload),
+            bool(payload.get("guard_enabled", self._enabled_default)),
+            _optional_float(payload.get("guard_disabled_at")),
+            _optional_float(payload.get("guard_off_since")),
+            _non_negative_int(payload.get("guard_disable_count")),
+            _optional_float(payload.get("guard_last_off_seconds")),
+            normalize_tier(payload.get("guard_tier", self._tier_default)),
+            HealthLog.from_payload(payload.get("health")),
+        )
+
+    def _note_restore_failure(self, error: BaseException) -> None:
+        """Say out loud that the stored state was dropped, and why.
+
+        The file is deliberately **not** deleted or overwritten here: it may be
+        the only copy of a dispute record, and a bad read is not proof the data
+        is bad. It simply is not loaded this run.
+        """
+        self._health.record("state_restore_failed")
+        self.logger.error(
+            "dignity_guard: stored state could not be read (%s: %s); starting "
+            "from empty defaults. The file on disk is untouched.",
+            type(error).__name__,
+            error,
+        )
 
     async def _persist_state(self) -> bool:
         payload = self._state.to_payload()
@@ -501,30 +558,48 @@ class DignityGuardPlugin(NekoPluginBase):
         await self._maybe_check_memory()
         return result
 
-    def _poll_lock(self) -> asyncio.Lock:
-        """Return a lock bound to the loop that is calling right now.
+    def _begin_exclusive(self) -> bool:
+        """Try to take the critical section. ``False`` means somebody else holds it.
 
-        Timer callbacks and entry handlers may run on different loops, and an
-        ``asyncio.Lock`` may not be shared across loops. Re-creating it per loop
-        keeps that from raising while still serialising the common single-loop
-        case (which is what prevents a duplicated spoken message).
+        This replaced an ``asyncio.Lock``, and the reason is worth keeping: an
+        ``asyncio.Lock`` belongs to **one** event loop. The old helper silently
+        minted a fresh lock whenever it was called from a different loop than
+        the last one — so a timer callback holding ``lock_A`` and an entry
+        handler checking ``lock_B`` both saw "not locked", and both proceeded.
+        The guard would let a poll and a button press mutate ``_state`` at the
+        same instant: precisely the corruption the lock existed to prevent, and
+        invisible in the log.
+
+        A plain flag is the right instrument because this lock is never *waited*
+        on — callers give up and report ``busy`` instead of queueing. That makes
+        async scheduling irrelevant, and a flag has no loop affinity, so one
+        critical section covers every loop and thread in the process.
+
+        The check-and-set runs under a ``threading.Lock`` held for a handful of
+        bytecodes (no ``await`` inside), because ``if flag: ...`` followed by
+        ``flag = True`` is not atomic on its own.
         """
-        loop = asyncio.get_running_loop()
-        if self._lock is None or self._lock_loop is not loop:
-            self._lock = asyncio.Lock()
-            self._lock_loop = loop
-        return self._lock
+        with self._busy_flag:
+            if self._busy:
+                return False
+            self._busy = True
+            return True
+
+    def _end_exclusive(self) -> None:
+        """Leave the critical section. Must be paired with ``_begin_exclusive``
+        in a ``finally`` — a critical section that raises must not leave the
+        flag set, or every later caller would be told ``busy`` forever."""
+        self._busy = False
 
     async def _run_poll(self, *, force: bool):
         watcher, client = self._watcher, self._client
         if watcher is None or client is None:
             return Err(SdkError("plugin is not started yet", code="not_ready"))
 
-        lock = self._poll_lock()
-        if lock.locked():
+        if not self._begin_exclusive():
             return Ok({"status": "busy"})
 
-        async with lock:
+        try:
             try:
                 evaluation = await watcher.poll(force=force)
             except MainServerUnreachable as exc:
@@ -538,30 +613,53 @@ class DignityGuardPlugin(NekoPluginBase):
                         details={"endpoint": exc.endpoint},
                     )
                 )
-
             self._last_poll_at = time.time()
-
-            if evaluation.first_seen:
-                await self._refresh_user_locale(client)
+            # Everything that reads or writes ``self._state`` happens here, and
+            # nothing else does. Only the persist call touches IO, and it is a
+            # local store write.
+            if evaluation.first_seen or evaluation.has_changes:
                 await self._persist_state()
-                return Ok(
-                    {
-                        "status": "baseline",
-                        "tracked_paths": len(self._state.snapshot),
-                    }
-                )
-
-            if evaluation.has_changes:
-                await self._persist_state()
-                self._speak(evaluation)
-
-            # She has spoken; now the high tier may put something back. Kept
-            # separate from ``_speak`` on purpose: a revert we cannot carry out
-            # must never be a reason she falls silent.
-            if evaluation.to_revert:
-                await self._run_reverts(evaluation)
-
-            return Ok(self._summary(evaluation))
+            baseline_paths = len(self._state.snapshot)
+        finally:
+            self._end_exclusive()
+        # ---- outside the lock: IO that must NOT hold it ------------------
+        #
+        # These are network and message operations. Holding the lock across them
+        # would make every guard button answer "busy" for as long as the main
+        # server is slow — the lock exists to protect ``_state``, and none of
+        # these read or write it any more (``_run_reverts`` only records into
+        # ``_revert_outcomes``, which no entry point touches).
+        #
+        # KNOWN LIMIT: ``watcher.poll`` above still performs its HTTP read under
+        # the lock, because it folds that read and ``evaluate`` into one call.
+        # Splitting it would rebuild the watcher; the cost is accepted and
+        # written down rather than hidden: while the main server is slow, the
+        # guard's entries answer ``busy``.
+        if evaluation.first_seen:
+            await self._refresh_user_locale(client)
+            return Ok(
+                {
+                    "status": "baseline",
+                    "tracked_paths": baseline_paths,
+                }
+            )
+        # Two different questions, and they were being asked as one:
+        #   * "is there anything to persist?"  -> ``has_changes`` (any diff at
+        #     all, including L3 pipeline noise she does not speak about)
+        #   * "does she have anything to say?" -> ``raised`` (the items that
+        #     became disputes)
+        # Driving ``_speak`` off ``has_changes`` made the low tier — the one
+        # that promises "record it but do not bother her" — push a message
+        # whose body was an empty bullet list. Being asked to comment on
+        # nothing is worse than not being asked at all.
+        if evaluation.raised:
+            self._speak(evaluation)
+        # She has spoken; now the high tier may put something back. Kept
+        # separate from ``_speak`` on purpose: a revert we cannot carry out
+        # must never be a reason she falls silent.
+        if evaluation.to_revert:
+            await self._run_reverts(evaluation)
+        return Ok(self._summary(evaluation))
 
     async def _refresh_user_locale(self, client: MainServerClient) -> None:
         language = await client.fetch_user_language()
@@ -579,7 +677,17 @@ class DignityGuardPlugin(NekoPluginBase):
             "put_back": sum(1 for reason in self._revert_outcomes.values() if not reason),
             "put_back_failed": sum(1 for reason in self._revert_outcomes.values() if reason),
             "pending_total": len(self._state.pending()),
-            "revision": self._watcher.last_probe.revision if self._watcher else None,
+            # Same guard as ``get_dashboard``: ``last_probe`` is None until the
+            # first successful poll. Today this is unreachable (only called from
+            # ``_run_poll`` after a successful ``poll()``, which always assigns
+            # it) — but "today it cannot happen" is an invariant no one declared
+            # and nothing enforces. Two panels crashing from one missing guard is
+            # one too many.
+            "revision": (
+                self._watcher.last_probe.revision
+                if self._watcher and self._watcher.last_probe
+                else None
+            ),
         }
 
     # ------------------------------------------------------------------
@@ -637,6 +745,17 @@ class DignityGuardPlugin(NekoPluginBase):
         user has no way to check.
         """
         self._revert_outcomes = {}
+        for path in evaluation.revert_blocked:
+            # She asked for it back and the value we would have written could
+            # not be shown to be hers (see ``GuardState._revert_source``). That
+            # has to be said out loud: a revert that silently does not happen
+            # looks exactly like one that was never attempted, and the second is
+            # the failure this plugin exists to catch.
+            self._revert_outcomes[path] = "baseline_lost"
+            self._health.record("revert_baseline_lost")
+            self.logger.info(
+                "dignity_guard: left {} as it was (baseline_lost)", path
+            )
         for change in evaluation.to_revert:
             reason = await self._revert_change(change)
             self._revert_outcomes[change.path] = reason
@@ -745,7 +864,7 @@ class DignityGuardPlugin(NekoPluginBase):
             return
 
         try:
-            snapshot = scan_memory(root)
+            snapshot = await asyncio.to_thread(scan_memory, root)
         except OSError as exc:
             self._memory_error = "memory_unreadable"
             self._health.record("memory_unreadable")
@@ -782,7 +901,7 @@ class DignityGuardPlugin(NekoPluginBase):
         backup_root = self._memory_backup_root()
         stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime(now))
         try:
-            report = create_backup(root, backup_root, stamp=stamp)
+            report = await asyncio.to_thread(create_backup, root, backup_root, stamp=stamp)
         except OSError as exc:
             self._memory_error = "backup_failed"
             self._health.record("memory_backup_failed")
@@ -790,7 +909,7 @@ class DignityGuardPlugin(NekoPluginBase):
             return
 
         self._last_memory_backup_at = now
-        pruned = prune_backups(backup_root, daily_keep=self._memory_backup_keep)
+        pruned = await asyncio.to_thread(prune_backups, backup_root, daily_keep=self._memory_backup_keep)
         self.logger.info(
             "dignity_guard: memory backup {} ({} file(s), {} pruned, {})",
             stamp,
@@ -808,10 +927,10 @@ class DignityGuardPlugin(NekoPluginBase):
                 fallbacks,
             )
 
-    def _memory_status(self) -> dict[str, Any]:
+    async def _memory_status(self) -> dict[str, Any]:
         root = self._memory_root
         try:
-            backups = list_backups(self._memory_backup_root())
+            backups = await asyncio.to_thread(list_backups, self._memory_backup_root())
         except OSError:
             backups = []
         return {
@@ -839,10 +958,10 @@ class DignityGuardPlugin(NekoPluginBase):
         except Exception:  # noqa: BLE001 - a report must never fail to be built
             return ""
 
-    def _build_diagnostics_report(self) -> str:
+    async def _build_diagnostics_report(self) -> str:
         """Assemble the report. ``diagnostics.py`` documents what is left out."""
         try:
-            backups = len(list_backups(self._memory_backup_root()))
+            backups = len(await asyncio.to_thread(list_backups, self._memory_backup_root()))
         except OSError:
             backups = 0
         return build_report(
@@ -917,7 +1036,7 @@ class DignityGuardPlugin(NekoPluginBase):
             # about, so it should be quoted, not summarised.
             "revertible_fields": sorted(REVERTIBLE_CATFIELDS),
             "her_words": HER_PROTECTION_STATEMENT,
-            "memory": self._memory_status(),
+            "memory": await self._memory_status(),
             "pending_count": len(pending),
             "pending": [
                 {
@@ -944,7 +1063,18 @@ class DignityGuardPlugin(NekoPluginBase):
             "full_rescan_seconds": self._full_rescan_seconds,
             "last_poll_at": self._last_poll_at,
             "last_error": self._watcher.last_error if self._watcher else "",
-            "revision": self._watcher.last_probe.revision if self._watcher else None,
+            # ``last_probe`` is None until the first *successful* poll — including
+            # the case where the main server is unreachable and never answers. The
+            # panel must still render in exactly that situation: it is where
+            # ``last_error`` is supposed to be read. Guarding only on the watcher
+            # meant "open the panel before the first poll" raised AttributeError
+            # and the whole panel failed to load — the one moment it was needed
+            # most was the one moment it could not be opened.
+            "revision": (
+                self._watcher.last_probe.revision
+                if self._watcher and self._watcher.last_probe
+                else None
+            ),
             "disable_count": self._disable_count,
             "last_disabled_at": self._disabled_at,
             "off_since": self._off_since,
@@ -1049,19 +1179,40 @@ class DignityGuardPlugin(NekoPluginBase):
         target = str(path or "").strip()
         if not target:
             return Err(SdkError("path is required", code="invalid_argument"))
-        grant = self._state.accept(target, ttl_seconds=ttl_seconds)
-        if grant is None:
+
+        # Serialise with the poller. ``evaluate`` mutates the same ``_state``
+        # (raising disputes, retiring paths), and "she accepted a setting" must
+        # not land in the middle of that — the two used to run unsynchronised,
+        # which could delete a dispute that had just been raised, or re-raise
+        # one that was just accepted. Rare, but the kind of wrong that leaves no
+        # trace in the log.
+        #
+        # Deliberately **not** waiting for the lock: a poll may hold it across
+        # an HTTP read, and a button that hangs is worse than one that asks to
+        # be pressed again. Same shape ``_run_poll`` already uses.
+        if not self._begin_exclusive():
             return Err(
                 SdkError(
-                    self._text(
-                        "errors.unknown_dispute",
-                        default="There is no outstanding objection for {path}.",
-                        path=target,
-                    ),
-                    code="unknown_dispute",
+                    self._text("errors.busy", default="Please try again in a moment."),
+                    code="busy",
                 )
             )
-        await self._persist_state()
+        try:
+            grant = self._state.accept(target, ttl_seconds=ttl_seconds)
+            if grant is None:
+                return Err(
+                    SdkError(
+                        self._text(
+                            "errors.unknown_dispute",
+                            default="There is no outstanding objection for {path}.",
+                            path=target,
+                        ),
+                        code="unknown_dispute",
+                    )
+                )
+            await self._persist_state()
+        finally:
+            self._end_exclusive()
         return Ok(
             {
                 "status": "accepted",
@@ -1110,18 +1261,30 @@ class DignityGuardPlugin(NekoPluginBase):
         target = str(path or "").strip()
         if not target:
             return Err(SdkError("path is required", code="invalid_argument"))
-        if not self._state.reject(target):
+
+        # Same lock, same reason, same refusal to wait — see ``accept_setting``.
+        if not self._begin_exclusive():
             return Err(
                 SdkError(
-                    self._text(
-                        "errors.unknown_dispute",
-                        default="There is no outstanding objection for {path}.",
-                        path=target,
-                    ),
-                    code="unknown_dispute",
+                    self._text("errors.busy", default="Please try again in a moment."),
+                    code="busy",
                 )
             )
-        await self._persist_state()
+        try:
+            if not self._state.reject(target):
+                return Err(
+                    SdkError(
+                        self._text(
+                            "errors.unknown_dispute",
+                            default="There is no outstanding objection for {path}.",
+                            path=target,
+                        ),
+                        code="unknown_dispute",
+                    )
+                )
+            await self._persist_state()
+        finally:
+            self._end_exclusive()
         return Ok(
             {
                 "status": "objecting",
@@ -1177,14 +1340,27 @@ class DignityGuardPlugin(NekoPluginBase):
         **_,
     ):
         if enabled:
-            if self._off_since is not None:
-                # Coming back on: remember how long it was dark, so the panel can
-                # say more than "it is on now".
-                self._last_off_seconds = max(0.0, time.time() - self._off_since)
-                self._off_since = None
-            self._enabled = True
-            self._pending_disable = None
-            await self._persist_state()
+            # ``_enabled`` is read by every poll tick, so flipping it has to be
+            # atomic with respect to ``evaluate``. Short critical section: the
+            # store write is local, no network inside.
+            if not self._begin_exclusive():
+                return Err(
+                    SdkError(
+                        self._text("errors.busy", default="Please try again in a moment."),
+                        code="busy",
+                    )
+                )
+            try:
+                if self._off_since is not None:
+                    # Coming back on: remember how long it was dark, so the panel
+                    # can say more than "it is on now".
+                    self._last_off_seconds = max(0.0, time.time() - self._off_since)
+                    self._off_since = None
+                self._enabled = True
+                self._pending_disable = None
+                await self._persist_state()
+            finally:
+                self._end_exclusive()
             return Ok(
                 {
                     "status": "enabled",
@@ -1198,7 +1374,21 @@ class DignityGuardPlugin(NekoPluginBase):
 
         if not consent_token:
             token = secrets.token_urlsafe(16)
-            self._pending_disable = {"token": token, "requested_at": time.time()}
+            # Only the state write goes under the lock. ``_push_disable_request``
+            # is a synchronous SDK call (it hands a message to her context) and
+            # it does not touch ``_state`` — holding the lock across it would
+            # stall the poller for no benefit.
+            if not self._begin_exclusive():
+                return Err(
+                    SdkError(
+                        self._text("errors.busy", default="Please try again in a moment."),
+                        code="busy",
+                    )
+                )
+            try:
+                self._pending_disable = {"token": token, "requested_at": time.time()}
+            finally:
+                self._end_exclusive()
             receipt = self._push_disable_request(token)
             return Ok(
                 {
@@ -1217,47 +1407,63 @@ class DignityGuardPlugin(NekoPluginBase):
                 }
             )
 
-        pending = self._pending_disable
-        expected = str(pending.get("token")) if pending else ""
-        if not pending or not secrets.compare_digest(str(consent_token), expected):
+        # This whole read-check-write has to be one step: the token is compared
+        # and then cleared, and a poll tick landing in the middle would see a
+        # half-applied consent. The critical section is pure CPU + one local
+        # store write — no network, so holding the lock is cheap.
+        if not self._begin_exclusive():
             return Err(
                 SdkError(
-                    self._text(
-                        "errors.consent_token_invalid",
-                        default="That consent token is not the one she was given.",
-                    ),
-                    code="invalid_consent_token",
+                    self._text("errors.busy", default="Please try again in a moment."),
+                    code="busy",
                 )
             )
-
-        elapsed = time.time() - float(pending.get("requested_at") or 0.0)
-        if elapsed < self._disable_delay:
-            remaining = self._disable_delay - elapsed
-            return Err(
-                SdkError(
-                    self._text(
-                        "errors.consent_too_early",
-                        default=(
-                            "She has not had a chance to answer yet; wait "
-                            "{seconds}s more."
+        try:
+            pending = self._pending_disable
+            expected = str(pending.get("token")) if pending else ""
+            if not pending or not secrets.compare_digest(
+                str(consent_token).encode("utf-8"), expected.encode("utf-8")
+            ):
+                return Err(
+                    SdkError(
+                        self._text(
+                            "errors.consent_token_invalid",
+                            default="That consent token is not the one she was given.",
                         ),
-                        seconds=int(remaining) + 1,
-                    ),
-                    code="consent_too_early",
-                    details={"retry_after": remaining},
+                        code="invalid_consent_token",
+                    )
                 )
-            )
 
-        self._enabled = False
-        now = time.time()
-        # Leave a mark. This is the honest half of the promise: we cannot verify
-        # who agreed, so at minimum the panel must be able to say that the guard
-        # was turned off, when, and how many times.
-        self._disabled_at = now
-        self._off_since = now
-        self._disable_count += 1
-        self._pending_disable = None
-        await self._persist_state()
+            elapsed = time.time() - float(pending.get("requested_at") or 0.0)
+            if elapsed < self._disable_delay:
+                remaining = self._disable_delay - elapsed
+                return Err(
+                    SdkError(
+                        self._text(
+                            "errors.consent_too_early",
+                            default=(
+                                "She has not had a chance to answer yet; wait "
+                                "{seconds}s more."
+                            ),
+                            seconds=int(remaining) + 1,
+                        ),
+                        code="consent_too_early",
+                        details={"retry_after": remaining},
+                    )
+                )
+
+            self._enabled = False
+            now = time.time()
+            # Leave a mark. This is the honest half of the promise: we cannot
+            # verify who agreed, so at minimum the panel must be able to say
+            # that the guard was turned off, when, and how many times.
+            self._disabled_at = now
+            self._off_since = now
+            self._disable_count += 1
+            self._pending_disable = None
+            await self._persist_state()
+        finally:
+            self._end_exclusive()
         return Ok(
             {
                 "status": "disabled",
@@ -1324,10 +1530,23 @@ class DignityGuardPlugin(NekoPluginBase):
                     code="invalid_guard_level",
                 )
             )
-        previous, self._tier = self._tier, cleaned
-        if self._watcher is not None:
-            self._watcher.tier = self._tier
-        await self._persist_state()
+        # The tier decides whether ``evaluate`` writes fields back, so it must
+        # not change underneath a poll that is already deciding. Same lock and
+        # same "do not wait" rule as the other entries.
+        if not self._begin_exclusive():
+            return Err(
+                SdkError(
+                    self._text("errors.busy", default="Please try again in a moment."),
+                    code="busy",
+                )
+            )
+        try:
+            previous, self._tier = self._tier, cleaned
+            if self._watcher is not None:
+                self._watcher.tier = self._tier
+            await self._persist_state()
+        finally:
+            self._end_exclusive()
         return Ok(
             {
                 "status": "updated",
@@ -1395,7 +1614,7 @@ class DignityGuardPlugin(NekoPluginBase):
                 )
             )
 
-        count = len(list_backups(self._memory_backup_root()))
+        count = len(await asyncio.to_thread(list_backups, self._memory_backup_root()))
         return Ok(
             {
                 "status": "backed_up",
@@ -1433,7 +1652,7 @@ class DignityGuardPlugin(NekoPluginBase):
     )
     async def export_diagnostics(self, include_link: bool = True, **_):
         """Hand over the record. Nothing leaves the machine until a human says so."""
-        report = self._build_diagnostics_report()
+        report = await self._build_diagnostics_report()
         payload: dict[str, Any] = {
             "status": "ok",
             "problems": self._health.total(),
@@ -1506,7 +1725,7 @@ class DignityGuardPlugin(NekoPluginBase):
         # hardest on whoever wrote the most.
         envelope = {
             "message": text,
-            "report": self._build_diagnostics_report(),
+            "report": await self._build_diagnostics_report(),
             "plugin": f"dignity_guard {PLUGIN_VERSION}",
             "platform": self._platform_summary(),
             # Underscore-prefixed keys are the relay's own knobs (FormSubmit
@@ -1650,6 +1869,16 @@ class DignityGuardPlugin(NekoPluginBase):
         Defaulting the other way round would make the safe path the one you have
         to remember, which is backwards.
         """
+        # Only an explicit ``False`` unlocks the write. The parameter is typed
+        # ``bool`` and declared ``boolean`` in the schema, but nothing enforces
+        # that at runtime: a caller that passes ``None`` (or omits the key in a
+        # way that arrives as ``None``) would hit the ``if dry_run:`` guard as
+        # falsy and **restore for real**. Normalising here keeps the safe
+        # default safe no matter what the caller sent — the cost of a wrongly
+        # skipped dry run is one extra call, the cost of a wrongly executed
+        # restore is the user's live files.
+        dry_run = dry_run is not False
+
         root = self._resolve_memory_root()
         if root is None:
             return Err(
@@ -1667,7 +1896,12 @@ class DignityGuardPlugin(NekoPluginBase):
 
         backup_root = self._memory_backup_root()
         try:
-            backups = list_backups(backup_root)
+            # ``to_thread``: listing the backup directory hits the filesystem.
+            # Same reasoning as the other five call sites — see
+            # ``_maybe_check_memory`` for the full note. The ``except OSError``
+            # below still catches it: ``to_thread`` re-raises whatever the
+            # worker raised, it does not swallow it.
+            backups = await asyncio.to_thread(list_backups, backup_root)
         except OSError:
             backups = []
         if not backups:
@@ -1697,7 +1931,7 @@ class DignityGuardPlugin(NekoPluginBase):
             chosen = max(backups, key=lambda info: (info.created_at, info.name)).name
 
         try:
-            available = scan_memory(backup_root / chosen / MEMORY_DIR_NAME)
+            available = await asyncio.to_thread(scan_memory, backup_root / chosen / MEMORY_DIR_NAME)
         except OSError as exc:
             self.logger.warning("dignity_guard: backup unreadable: {}", exc)
             return Err(
@@ -1726,7 +1960,7 @@ class DignityGuardPlugin(NekoPluginBase):
             if dry_run:
                 planned.append(redact_path(relative))
                 continue
-            reason = restore_file(backup_root, chosen, root, relative)
+            reason = await asyncio.to_thread(restore_file, backup_root, chosen, root, relative)
             if reason:
                 skipped.append({"path": redact_path(relative), "reason": reason})
                 self._health.record(f"memory_restore_{reason}")

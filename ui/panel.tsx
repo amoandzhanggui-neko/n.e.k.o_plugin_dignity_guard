@@ -93,6 +93,15 @@ type DashboardState = {
   last_disabled_at?: number | null
   off_since?: number | null
   last_off_seconds?: number | null
+  //: 最近一次「想把某个字段放回去」的结果，每路径一条。``reason`` 为空表示
+  //: 真的放回去了；非空是没放成的原因（详见 ``_revert_change`` 的返回码）。
+  //: 这一块是 DESIGN §6.1 那句「失败怎么办：不静默，面板可见」的兑现处 ——
+  //: 「她想放回去却没放成」是用户**唯一无法自己验证**的事，所以必须显示。
+  revert_outcomes?: { path?: string; reason?: string }[]
+  //: 后端报的插件版本，给「复制反馈」那段环境信息用。原来的面板把版本
+  //: 写死在正文里（"v0.1.0"），升版本时没人会记得改它 —— 而报告里的版本
+  //: 号恰恰是维护者判断"这个问题修没修"的依据，说错了比不说更糟。
+  plugin_version?: string
   memory?: MemoryState
 }
 
@@ -159,16 +168,29 @@ export default function DignityGuardPanel(
   const FALLBACK_URL =
     "https://github.com/amoandzhanggui-neko/n.e.k.o_plugin_dignity_guard/issues/new"
 
-  /** 组装要提交的正文：用户写的内容 + 自动附带的环境信息 */
+  /** 组装要提交的正文：用户写的内容 + 自动附带的环境信息。
+   *
+   * 这一段**刻意不翻译**，写成 ASCII 键值对，与 Python 侧
+   * `diagnostics.build_report()` 保持同一种风格。两个理由：
+   *
+   * 1. 它是给维护者定位问题用的，不是给用户读的界面文案。翻成日文，
+   *    对收到它的人只是噪音；而键名固定，任何语言的用户提交上来的
+   *    内容都同样可读。
+   * 2. 面板必须支持多语言。这段文字原来写死成中文，英/日用户点「复制」
+   *    或「发送」时，夹在中间的就是一块中国字 —— 官方的 i18n 要求里
+   *    这是明确不允许的。
+   *
+   * 版本从 state 里取、不写死：写死会在升版本时悄悄说错话，而报告里的
+   * 版本号正是判断"这个问题修没修"的依据。
+   */
   function buildFeedbackBody(): string {
     const env = [
-      "--- 以下为自动附带的环境信息（便于定位问题）---",
-      "插件: dignity_guard (尊严守卫) v0.1.0",
-      `守卫状态: ${enabled ? "已开启" : "已关闭"}`,
-      `档位: ${state.guard_level || "medium"}`,
-      `正在盯住的设置项: ${state.tracked_paths ?? 0}`,
-      `她不认可的项: ${state.pending_count ?? pending.length}`,
-      state.last_error ? `最近错误: ${state.last_error}` : null,
+      "--- environment (auto-attached; no personal data) ---",
+      `plugin: dignity_guard ${state.plugin_version ?? "unknown"}`,
+      `guard: ${enabled ? "on" : "off"} / level: ${state.guard_level || "medium"}`,
+      `tracked settings: ${state.tracked_paths ?? 0}`,
+      `pending objections: ${state.pending_count ?? pending.length}`,
+      state.last_error ? `last error: ${state.last_error}` : null,
     ]
       .filter(Boolean)
       .join("\n")
@@ -191,17 +213,56 @@ export default function DignityGuardPanel(
     }
     // 真正发出去的那一步在 Python 侧（action: submit_feedback）。
     // 面板只把用户写的内容递过去，报告由插件自己拼，用户不用管。
-    await call("submit_feedback", { message: fbText.trim() }, t("ui.feedback.sent"))
+    const sent = await call(
+      "submit_feedback",
+      { message: fbText.trim() },
+      t("ui.feedback.sent"),
+    )
+    // 失败了就什么都别动：正文留在框里、弹窗不关。用户可以直接重试，
+    // 而不用把自己写的东西重打一遍 —— 这也是「通道忙，过一分钟再点
+    // 一次发送就好」那句话能成立的前提。
+    if (!sent) return
     setFbText("")
     setFbOpen(false)
   }
 
+  /**
+   * 宿主 origin —— 与 SDK 的 ``hostedTargetOrigin()`` 同源。
+   *
+   * postMessage 的第二个参数必须是一个**具体 origin**（写 ``"*"`` 会把消息
+   * 发给任何人），而宿主注入了它自己的 origin，所以优先用它。
+   */
+  function hostedTargetOrigin(): string {
+    const payload = (window as unknown as { __NEKO_PAYLOAD?: unknown }).__NEKO_PAYLOAD
+    const host =
+      payload && typeof payload === "object"
+        ? (payload as { host?: unknown }).host
+        : null
+    const origin =
+      host && typeof host === "object" && typeof (host as { origin?: unknown }).origin === "string"
+        ? ((host as { origin: string }).origin).trim()
+        : ""
+    return origin || window.location.origin
+  }
+
   function openFeedbackPage() {
-    // 没有接收地址时的退路。插件 UI 没有官方的「打开外部链接」API，
-    // 先试 window.open；被沙箱拦下时不静默失败 —— 把地址显示出来。
+    // ⚠️ 这里踩过一个坑，写下来免得再踩：
+    //
+    // 面板跑在 ``sandbox="allow-scripts"`` 的 iframe 里（注意：**没有**
+    // ``allow-popups``），所以 ``window.open`` 会被**静默拦下** —— 它不抛异常、
+    // 只返回 ``null``、页面上什么都不发生。于是：
+    //   * 拿返回值判断成败 → 打开成功也报"失败"（假报错）；
+    //   * 只留 try/catch   → 真被拦下时毫无提示（真静默）。
+    //
+    // 宿主其实提供了官方通道：postMessage 下面这个类型，
+    // ``HostedSurfaceFrame`` 收到后交给 ``shell.openExternal``，由系统浏览器打开。
+    // SDK 的 ``FileDownload`` 内部用的就是同一条路。原来的注释说"插件 UI 没有
+    // 官方打开外部链接的 API" —— 那句话是错的。
     try {
-      const opened = window.open(FALLBACK_URL, "_blank", "noopener,noreferrer")
-      if (!opened) toast.error(`${t("ui.feedback.openFailed")} ${FALLBACK_URL}`)
+      parent.postMessage(
+        { type: "neko-hosted-surface-open-external", payload: { url: FALLBACK_URL } },
+        hostedTargetOrigin(),
+      )
     } catch {
       toast.error(`${t("ui.feedback.openFailed")} ${FALLBACK_URL}`)
     }
@@ -213,14 +274,47 @@ export default function DignityGuardPanel(
     )
   }
 
-  async function call(id: string, args: Record<string, unknown>, done: string) {
+  // 把后端的「原因码」翻成人话。
+  //
+  // 不加这层，面板上会出现 `baseline_lost`、`read_failed` 这种机器码 ——
+  // 对用户等于没说。更糟的是「她本想放回去却没放成」这件事，用户是**唯一
+  // 无法自己验证**的（值没变，界面看起来一切正常），所以这一块必须能读懂。
+  //
+  // ⚠️ 这里每个键都写成字面量常量，不拼模板字符串。原因是 tools 侧的
+  // test_smoke 只校验字面量键（见 tests/test_smoke.py 里那句注释：那个扫描
+  // 连注释里的调用都会收进去），拼出来的字符串会绕过这道保护网 —— 键写错
+  // 了也没人拦。宁可写得啰嗦。
+  function revertReason(reason: string): string {
+    if (reason === "baseline_lost") return t("ui.revert.reason.baselineLost")
+    if (reason === "read_failed") return t("ui.revert.reason.readFailed")
+    if (reason === "write_failed") return t("ui.revert.reason.writeFailed")
+    if (reason === "character_missing") return t("ui.revert.reason.characterMissing")
+    if (reason === "value_unavailable") return t("ui.revert.reason.noValue")
+    if (reason === "empty_value") return t("ui.revert.reason.noValue")
+    if (reason === "no_previous_value") return t("ui.revert.reason.noValue")
+    return t("ui.revert.reason.other")
+  }
+
+  // 返回「到底成没成」。
+  //
+  // 原来是 void：catch 里弹个 toast 就算了，调用方拿到的是「正常返回」，
+  // 于是 sendFeedback 无条件清空输入框、关掉弹窗 —— 用户手写的一大段
+  // 反馈在发送失败时被抹掉，而 Python 侧特意做的「不截断、说清原因、
+  // 不丢内容」全白费。失败必须让调用方知道。
+  async function call(
+    id: string,
+    args: Record<string, unknown>,
+    done: string,
+  ): Promise<boolean> {
     setBusy(true)
     try {
       await props.api.call(id, args)
       await props.api.refresh()
       toast.success(done)
+      return true
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error))
+      return false
     } finally {
       setBusy(false)
     }
@@ -354,6 +448,32 @@ export default function DignityGuardPanel(
             </Tip>
           </Stack>
         </Card>
+
+        {/* ★ 回滚结果。DESIGN §6.1 里写着「失败怎么办：**不静默**，逐路径记
+            revert_outcomes，面板可见」—— 这一块就是那句话的兑现处。
+
+            只在**本轮轮询真的尝试过回滚**时出现（后端每轮重置该表）：
+            一张永远空着的卡片比没有卡片更糟 —— 它会让「什么都没发生」和
+            「发生了、但被吞了」在界面上长得一模一样。 */}
+        {(state.revert_outcomes ?? []).length > 0 ? (
+          <Card title={t("ui.section.reverted")}>
+            <Stack>
+              {(state.revert_outcomes ?? []).map(
+                (item: { path?: string; reason?: string }, index: number) => (
+                  <Inline key={`${item.path ?? "?"}-${index}`} gap={8} wrap>
+                    <StatusBadge
+                      tone={item.reason ? "warning" : "default"}
+                      label={item.reason ? t("ui.revert.failed") : t("ui.revert.done")}
+                    />
+                    <Text>{item.path ?? ""}</Text>
+                    {item.reason ? <Text>{revertReason(item.reason)}</Text> : null}
+                  </Inline>
+                ),
+              )}
+              <Tip>{t("ui.revert.note")}</Tip>
+            </Stack>
+          </Card>
+        ) : null}
 
         {/* 她的记忆不在设置文件里，是独立目录（JSON + 一个活的 SQLite）。
             这里只「报告」：备份是自动的，还原是用户自己的动作。

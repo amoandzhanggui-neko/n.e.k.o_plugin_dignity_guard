@@ -190,11 +190,28 @@ class MainServerClient:
         return probe, payload
 
     async def fetch_others(self) -> dict[str, Any]:
-        """Read the remaining snapshot sources over one short-lived client."""
+        """Read the remaining snapshot sources over one short-lived client.
+
+        Each source is read on its own: if one refuses, the other three are
+        still read this cycle and the failed one is recorded as ``None``.
+        Letting the exception out — which is what this did at first — meant
+        **one endpoint returning 500 blanked all four**, so a single hiccup
+        made the plugin go blind everywhere. That is the same "one thing broke,
+        so everything looks dead" shape this plugin exists to catch elsewhere.
+
+        ``None`` must not be read as "every field disappeared": see
+        :func:`settings_guard.build_snapshot`, which carries the previous values
+        over for a source that was not read, instead of reporting a mass
+        deletion.
+        """
         payloads: dict[str, Any] = {}
         async with self._make_client() as client:
             for prefix, endpoint in SNAPSHOT_SOURCES:
-                payload = await self._get_json_with(client, endpoint)
+                try:
+                    payload = await self._get_json_with(client, endpoint)
+                except MainServerUnreachable:
+                    payloads[prefix] = None
+                    continue
                 payloads[prefix] = (
                     prune_mirrored_preferences(payload)
                     if prefix == "preferences"
@@ -202,12 +219,16 @@ class MainServerClient:
                 )
         return payloads
 
-    async def fetch_snapshot(self) -> Snapshot:
-        """Read everything and build a snapshot (used for forced refreshes)."""
+    async def fetch_snapshot(self, *, previous: Snapshot | None = None) -> Snapshot:
+        """Read everything and build a snapshot (used for forced refreshes).
+
+        ``previous`` is the snapshot the caller already holds. It is used only
+        for sources this cycle could not read — see :meth:`fetch_others`.
+        """
         _probe, conversation = await self.fetch_conversation()
         payloads = await self.fetch_others()
         payloads["conversation"] = conversation_slice(conversation)
-        return build_snapshot(payloads)
+        return build_snapshot(payloads, previous=previous)
 
     async def fetch_user_language(self) -> str | None:
         """Best-effort read of the user's UI language (short code, e.g. ``zh``).
@@ -368,7 +389,11 @@ class SettingsWatcher:
 
         payloads = await self.client.fetch_others()
         payloads["conversation"] = conversation_slice(conversation)
-        snapshot = build_snapshot(payloads)
+        # ``previous=self.state.snapshot`` so a source that could not be read
+        # this cycle keeps its last known values. Without it, every field of
+        # that source would look *deleted* to ``diff_snapshots`` — one 500 from
+        # the main server would surface as "she objects to forty settings".
+        snapshot = build_snapshot(payloads, previous=self.state.snapshot)
 
         evaluation = self.state.evaluate(snapshot, now=moment, tier=self.tier)
         self.last_probe = probe

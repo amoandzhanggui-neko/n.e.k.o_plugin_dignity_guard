@@ -143,6 +143,9 @@ async def deliver(
 
     for attempt in range(attempts):
         retry_after: float | None = None
+        # ``rate_limited`` is reset every attempt because it only describes what
+        # *this* attempt's verdict was, not the history of the loop.
+        rate_limited = False
 
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
@@ -155,6 +158,7 @@ async def deliver(
             if response.status_code == 429:
                 last_error = "rate limited (HTTP 429)"
                 retry_after = _retry_after_seconds(response)
+                rate_limited = True
             elif response.status_code >= 500:
                 last_error = f"the relay is unwell (HTTP {response.status_code})"
             else:
@@ -186,7 +190,15 @@ async def deliver(
                 # delay telling the user the truth.
                 if not any(hint in reason.lower() for hint in _RATE_LIMIT_HINTS):
                     raise FeedbackUndeliverable(target, reason)
+                # A body-level rate limit (HTTP 200 + success:false that *sounds*
+                # like "slow down"). The status code was 200, so the marker
+                # string "429" never appears on this path — which is exactly why
+                # the final verdict must use the flag below and not sniff the
+                # error text. Honour any Retry-After the service sent even though
+                # the status was not 429.
                 last_error = reason
+                rate_limited = True
+                retry_after = _retry_after_seconds(response)
 
         if attempt < len(FEEDBACK_RETRY_DELAYS):
             wait = (
@@ -199,7 +211,13 @@ async def deliver(
     # Out of attempts. If what kept us waiting was the relay being busy rather
     # than anything about the message, say so — it changes what the user does
     # next (press Send again shortly, versus go looking for a problem).
-    if isinstance(last_error, str) and "429" in last_error:
+    #
+    # We decide on the flag, not on the text of ``last_error``: a body-level
+    # rate limit arrives as HTTP 200 with success:false, so the three characters
+    # "429" only ever appear on the status-code path. String-matching the error
+    # would silently reroute every body-level rate limit to FeedbackUndeliverable
+    # and the separate words in FeedbackRateLimited would never reach the user.
+    if rate_limited:
         raise FeedbackRateLimited(target, last_error)
     raise FeedbackUndeliverable(target, last_error)
 

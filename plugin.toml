@@ -34,7 +34,11 @@ permissions = ["state:read", "action:call"]
 [[plugin.ui.guide]]
 title = "尊严守卫 · 新手引导"
 entry = "ui/onboarding.tsx"
-permissions = ["state:read"]
+#: 显式空数组，不是省略。`plugin/core/ui_manifest.py` 在 `permissions` 缺席时
+#: 会用该 kind 的默认值，而 guide 的默认恰好就是 `["state:read"]` —— 所以
+#: "删掉这一行"会看起来更干净、实际权限一点没少。新手引导整页只用到 t()
+#: 做翻译（见 ui/onboarding.tsx），不读 state、不调 action，申请它没有理由。
+permissions = []
 
 [plugin_runtime]
 enabled = true

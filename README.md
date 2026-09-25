@@ -26,6 +26,38 @@ Three capabilities instead:
 3. **Keep a record** — a `hosted-tsx` panel shows how many settings she does not agree
    with, item by item, alongside the ones she has already accepted.
 
+### What else it reaches
+
+The three capabilities above describe what the plugin does *for her*. It also
+touches three surfaces beyond "observe and record", and each is listed here on
+purpose so a reviewer — or you — can see exactly where it reaches:
+
+| It… | …reads from / writes to | …when |
+|---|---|---|
+| reads her memory directory and backs it up | its own `data/` backup area; writes back into the live directory on request | on a schedule |
+| puts L1 settings *back* | the main server (`PUT /api/characters`) | only at the `high` tier, on an objected change |
+| sends feedback out | a third-party relay (FormSubmit) | only when you press **Send** |
+
+In detail:
+
+- **It reads and backs up her memory directory.** Beyond watching settings, it
+  resolves her memory folder (`_resolve_memory_root`) and periodically copies
+  those files into its own backup area (`memory_backup.py`). On request it can
+  write a backup *back* into the live directory via the `restore_memory` action —
+  by default in `dry_run` mode, which only reports what *would* be restored and
+  changes nothing on disk.
+- **The `high` tier writes settings, not just records them.** When a change hits
+  an L1 (heavy) field and the tier is `high`, the plugin does not only notice it:
+  it puts the field back to the value she had not yet agreed to, by calling
+  `PUT /api/characters/catgirl/{name}` through `main_server_client.py`
+  (`_run_reverts` / `_revert_change`). This is the one path where the plugin
+  *writes* to the main server rather than merely observing it.
+- **Feedback leaves your machine.** The feedback function (`feedback.py`) POSTs
+  what you type plus a short, automatically-collected environment snippet to a
+  third-party relay (FormSubmit, `https://formsubmit.co/...`). This happens *only*
+  when you press **Send**; nothing is sent on its own, and the panel's privacy
+  note says the same.
+
 ## Levels and consent
 
 Every setting is classified into one of three levels (`settings_guard.py`):
