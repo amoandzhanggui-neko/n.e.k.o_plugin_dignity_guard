@@ -76,6 +76,7 @@
   "errors.feedbackEmpty": "まだ何も書かれていません。",
   "errors.feedbackNoEndpoint": "作者が受け取り先を設定していないため、送り先がありません。コピーしてください。",
   "errors.feedbackFailed": "メッセージを送信できませんでした。プラグインのログをご確認ください。",
+  "errors.feedbackBusy": "いま経路が混み合っています — 内容は失われていません。1分ほど待って、もう一度「送信」を押してください。",
   "errors.feedbackTooSoon": "たった今送信しました。{seconds} 秒後にもう一度お試しください。",
   "errors.feedbackTooLong": "約 {size} KB です。この経路は {limit} KB 程度までです。まだ送信していません — 少し短くするか、二回に分けてください。",
   "ui.subtitle": "彼女が気づき、口に出し、記録はここに残る",

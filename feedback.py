@@ -22,12 +22,15 @@ feedback button and surveillance, and it is why this file has no timer, no
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Mapping
 
 import httpx
 
 __all__ = [
     "DEFAULT_FEEDBACK_TIMEOUT",
+    "FEEDBACK_RETRY_DELAYS",
+    "FeedbackRateLimited",
     "FeedbackUndeliverable",
     "deliver",
 ]
@@ -35,6 +38,23 @@ __all__ = [
 #: Long enough for a slow form service, short enough that the button does not
 #: feel broken while the user waits.
 DEFAULT_FEEDBACK_TIMEOUT = 15.0
+
+#: How long to wait before re-posting, when the relay says "too many".
+#:
+#: The relay answers a rate-limited post in about a second, so a wait here costs
+#: the user almost nothing — while the alternative costs them the whole report
+#: they just wrote by hand. Sending them away with "try again later" would be a
+#: poor trade against six seconds of patience.
+#:
+#: Measured 2026-09-25: five posts two seconds apart all went through and a
+#: sixth one second later came back ``429``, so this only ever fires when
+#: somebody really is sending in a hurry.
+FEEDBACK_RETRY_DELAYS: tuple[float, ...] = (6.0, 15.0)
+
+#: Body-level phrasing that means "come back later" rather than "never".
+#: FormSubmit reports some refusals as ``HTTP 200`` with ``success: false``, so
+#: the status code alone cannot tell a rate limit from a misconfiguration.
+_RATE_LIMIT_HINTS = ("rate", "limit", "too many", "throttl", "slow down")
 
 #: Some relay services (FormSubmit, for one) refuse a request that arrives with
 #: no ``Referer``, so that local HTML files cannot use them as a free backend.
@@ -68,6 +88,16 @@ class FeedbackUndeliverable(RuntimeError):
         super().__init__(f"could not deliver feedback to {endpoint!r}: {cause}")
         self.endpoint = endpoint
         self.cause = cause
+
+
+class FeedbackRateLimited(FeedbackUndeliverable):
+    """The relay is busy, not broken. Waited out; still said no.
+
+    Kept separate because it deserves different words in front of a user. "It
+    could not be sent" invites them to check their network and their text; "the
+    channel is busy, give it a minute" tells them their report is fine and the
+    fix is to press Send again shortly. The second one is the truth here.
+    """
 
 
 async def deliver(
@@ -104,19 +134,87 @@ async def deliver(
     if referer:
         headers["Referer"] = referer
 
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(target, json=dict(payload), headers=headers)
-            response.raise_for_status()
-    except Exception as exc:  # noqa: BLE001 - re-raised as our own type
-        raise FeedbackUndeliverable(target, exc) from exc
+    # "Come back later" is not the same answer as "no". A relay that is busy, or
+    # one that thinks we are posting too fast, is telling us to wait — and the
+    # user is standing there with a note they already wrote. So those two answers
+    # are waited out rather than handed back as a failure.
+    attempts = len(FEEDBACK_RETRY_DELAYS) + 1
+    last_error: object = "not attempted"
 
-    # Body-level refusal. Deliberately tolerant about the shape: a service that
-    # answers with HTML, or with no body at all, is not thereby a failure.
+    for attempt in range(attempts):
+        retry_after: float | None = None
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(
+                    target, json=dict(payload), headers=headers
+                )
+        except Exception as exc:  # noqa: BLE001 - transport failure, retried below
+            last_error = exc
+        else:
+            if response.status_code == 429:
+                last_error = "rate limited (HTTP 429)"
+                retry_after = _retry_after_seconds(response)
+            elif response.status_code >= 500:
+                last_error = f"the relay is unwell (HTTP {response.status_code})"
+            else:
+                try:
+                    response.raise_for_status()
+                except Exception as exc:  # noqa: BLE001 - a 4xx that is not 429
+                    raise FeedbackUndeliverable(target, exc) from exc
+
+                # Body-level refusal. Deliberately tolerant about the shape: a
+                # service that answers with HTML, or with no body at all, is not
+                # thereby a failure.
+                body: object = None
+                try:
+                    body = response.json()
+                except Exception:  # noqa: BLE001 - not JSON means "no claim made"
+                    body = None
+
+                refused = isinstance(body, Mapping) and (
+                    str(body.get("success", "")).lower() == "false"
+                )
+                if not refused:
+                    return  # delivered
+
+                reason = str(
+                    body.get("message") or body.get("error") or "the service refused it"
+                )
+                # A refusal that *sounds* like "slow down" gets one more try.
+                # Anything else is a real answer, and repeating it would only
+                # delay telling the user the truth.
+                if not any(hint in reason.lower() for hint in _RATE_LIMIT_HINTS):
+                    raise FeedbackUndeliverable(target, reason)
+                last_error = reason
+
+        if attempt < len(FEEDBACK_RETRY_DELAYS):
+            wait = (
+                retry_after
+                if retry_after is not None
+                else FEEDBACK_RETRY_DELAYS[attempt]
+            )
+            await asyncio.sleep(max(0.0, wait))
+
+    # Out of attempts. If what kept us waiting was the relay being busy rather
+    # than anything about the message, say so — it changes what the user does
+    # next (press Send again shortly, versus go looking for a problem).
+    if isinstance(last_error, str) and "429" in last_error:
+        raise FeedbackRateLimited(target, last_error)
+    raise FeedbackUndeliverable(target, last_error)
+
+
+def _retry_after_seconds(response: "httpx.Response") -> float | None:
+    """Read ``Retry-After`` when the relay bothers to send one.
+
+    It may be seconds or an HTTP date; only the first form is used, because a
+    date would mean trusting two clocks to agree.
+    """
+    raw = (response.headers.get("Retry-After") or "").strip()
+    if not raw:
+        return None
     try:
-        body = response.json()
-    except Exception:  # noqa: BLE001 - not JSON means "no claim made"
-        return
-    if isinstance(body, Mapping) and str(body.get("success", "")).lower() == "false":
-        reason = body.get("message") or body.get("error") or "the service refused it"
-        raise FeedbackUndeliverable(target, reason)
+        seconds = float(raw)
+    except ValueError:
+        return None
+    return max(0.0, min(seconds, 30.0))  # never wait longer than a caller would

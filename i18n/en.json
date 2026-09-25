@@ -76,6 +76,7 @@
   "errors.feedbackEmpty": "There is nothing to send yet.",
   "errors.feedbackNoEndpoint": "The author has not configured a receiving address, so there is nowhere to send this. Copy it instead.",
   "errors.feedbackFailed": "The message could not be sent; see the plugin log.",
+  "errors.feedbackBusy": "The channel is busy right now — nothing was lost. Press Send again in a minute and it will go through.",
   "errors.feedbackTooSoon": "One was just sent; give it {seconds}s.",
   "errors.feedbackTooLong": "That is about {size} KB and this channel takes around {limit} KB. Nothing was sent — please trim it a little, or send it in two parts.",
   "ui.subtitle": "She notices, she says something, the record stays here",

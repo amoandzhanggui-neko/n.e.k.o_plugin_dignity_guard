@@ -74,6 +74,7 @@ REQUIRED_KEYS = (
     "errors.feedbackEmpty",
     "errors.feedbackNoEndpoint",
     "errors.feedbackFailed",
+    "errors.feedbackBusy",
     "errors.feedbackTooSoon",
     "errors.feedbackTooLong",
 )

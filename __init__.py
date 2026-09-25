@@ -48,7 +48,12 @@ from .diagnostics import (
     issue_url,
     redact_path,
 )
-from .feedback import DEFAULT_FEEDBACK_ENDPOINT, FeedbackUndeliverable, deliver
+from .feedback import (
+    DEFAULT_FEEDBACK_ENDPOINT,
+    FeedbackRateLimited,
+    FeedbackUndeliverable,
+    deliver,
+)
 from .main_server_client import (
     DEFAULT_BASE_URL,
     DEFAULT_FULL_RESCAN_SECONDS,
@@ -1473,7 +1478,11 @@ class DignityGuardPlugin(NekoPluginBase):
             "required": ["message"],
             "additionalProperties": False,
         },
-        timeout=30.0,
+        # Roomy on purpose: the relay answers a rate-limited post instantly, and
+        # ``deliver`` waits it out rather than handing the user a "try later".
+        # Two backoffs plus two attempts is under a minute; the cap just has to
+        # be above that so the SDK never cuts the attempt short.
+        timeout=75.0,
     )
     async def submit_feedback(self, message: str = "", **_):
         """Hand the note over: one click, and no account anywhere.
@@ -1557,6 +1566,25 @@ class DignityGuardPlugin(NekoPluginBase):
 
         try:
             await deliver(endpoint, envelope)
+        except FeedbackRateLimited as exc:
+            # Distinct from a delivery failure on purpose: the note itself is
+            # fine and the channel simply asked us to wait. Saying "could not be
+            # sent" here would send the user looking for a problem they do not
+            # have — and possibly rewriting a report that was never at fault.
+            self._health.record("feedback_rate_limited")
+            self.logger.warning("dignity_guard: feedback rate limited: {}", exc)
+            return Err(
+                SdkError(
+                    self._text(
+                        "errors.feedbackBusy",
+                        default=(
+                            "The channel is busy right now — nothing was lost. "
+                            "Press Send again in a minute and it will go through."
+                        ),
+                    ),
+                    code="feedback_busy",
+                )
+            )
         except FeedbackUndeliverable as exc:
             self._health.record("feedback_not_delivered")
             self.logger.warning("dignity_guard: feedback undeliverable: {}", exc)

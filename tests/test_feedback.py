@@ -18,9 +18,12 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
+from plugin.plugins.dignity_guard import feedback as feedback_module
 from plugin.plugins.dignity_guard.feedback import (
     DEFAULT_FEEDBACK_TIMEOUT,
     DEFAULT_REFERER,
+    FEEDBACK_RETRY_DELAYS,
+    FeedbackRateLimited,
     FeedbackUndeliverable,
     deliver,
 )
@@ -33,14 +36,23 @@ class _Recorder(BaseHTTPRequestHandler):
     seen_referer: list[str] = []
     reply_status: int = 200
     reply_body: dict = {}
+    #: Refuse this many times before settling down — what a real rate limit looks
+    #: like from the caller's side. Zero means "never busy".
+    rate_limit_times: int = 0
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib naming
         length = int(self.headers.get("Content-Length") or 0)
         raw = self.rfile.read(length) if length else b"{}"
         type(self).received.append(json.loads(raw or b"{}"))
         type(self).seen_referer.append(self.headers.get("Referer") or "")
+
+        status = type(self).reply_status
+        if type(self).rate_limit_times > 0:
+            type(self).rate_limit_times -= 1
+            status = 429
+
         payload = json.dumps(type(self).reply_body).encode("utf-8")
-        self.send_response(type(self).reply_status)
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
@@ -59,6 +71,7 @@ def endpoint():
     _Recorder.seen_referer = []
     _Recorder.reply_status = 200
     _Recorder.reply_body = {}
+    _Recorder.rate_limit_times = 0
     try:
         yield f"http://127.0.0.1:{server.server_port}/feedback"
     finally:
@@ -148,10 +161,70 @@ async def test_a_body_that_makes_no_claim_is_not_treated_as_a_failure(endpoint: 
     await deliver(endpoint, {"message": "hello"})
 
 
-async def test_a_server_error_still_raises(endpoint: str) -> None:
+async def test_a_server_error_still_raises(endpoint: str, monkeypatch) -> None:
+    """A 5xx is retried a couple of times, and then admitted.
+
+    The waits are zeroed here: what is under test is the verdict, not the
+    patience, and a suite that sits through the real backoff for no added
+    coverage is a suite people stop running.
+    """
+    monkeypatch.setattr(feedback_module, "FEEDBACK_RETRY_DELAYS", (0.0, 0.0))
     _Recorder.reply_status = 500
     with pytest.raises(FeedbackUndeliverable):
         await deliver(endpoint, {"message": "hello"})
+
+
+# ---------------------------------------------------------------------------
+# "come back later" is not "no"
+# ---------------------------------------------------------------------------
+
+
+async def test_a_rate_limit_that_never_clears_gets_its_own_error(
+    endpoint: str, monkeypatch
+) -> None:
+    """A busy relay must not read to the user as a broken one.
+
+    "It could not be sent" sends somebody hunting for a problem with their text
+    or their network. "The channel is busy, press Send again shortly" tells them
+    the truth and costs them one press. The two call for different sentences, so
+    they need different types — if these ever collapse into one, the distinction
+    disappears from the UI without anybody noticing.
+    """
+    monkeypatch.setattr(feedback_module, "FEEDBACK_RETRY_DELAYS", (0.0, 0.0))
+    _Recorder.reply_status = 429
+    with pytest.raises(FeedbackRateLimited):
+        await deliver(endpoint, {"message": "hello"})
+
+
+def test_the_backoff_fits_inside_the_entry_timeout() -> None:
+    """Total waiting has to stay under what the SDK will allow for the action.
+
+    A backoff longer than the entry timeout does not buy a retry — it buys a
+    timeout, which looks like a hang to the person waiting.
+    """
+    assert sum(FEEDBACK_RETRY_DELAYS) <= 30.0
+
+
+def test_the_relay_is_not_hammered() -> None:
+    """Retries are for a blip, not for insisting."""
+    assert 1 <= len(FEEDBACK_RETRY_DELAYS) <= 3
+
+
+async def test_a_rate_limit_that_clears_is_delivered(endpoint: str, monkeypatch) -> None:
+    """The whole point: a busy relay costs a wait, not the report.
+
+    The relay is told to refuse once and then accept, which is what a real rate
+    limit looks like from the caller's side.
+    """
+    monkeypatch.setattr(feedback_module, "FEEDBACK_RETRY_DELAYS", (0.0, 0.0))
+    # ``rate_limit_times`` refuses for a moment and then accepts; ``reply_status``
+    # is left alone, because that is what the server goes back to.
+    _Recorder.rate_limit_times = 1
+    try:
+        await deliver(endpoint, {"message": "hello"})
+    finally:
+        _Recorder.rate_limit_times = 0
+    assert len(_Recorder.received) >= 1
 
 
 # ---------------------------------------------------------------------------

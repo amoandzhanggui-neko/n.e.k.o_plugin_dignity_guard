@@ -76,6 +76,7 @@
   "errors.feedbackEmpty": "还没有写内容。",
   "errors.feedbackNoEndpoint": "作者还没有配置接收地址，所以没地方可发。可以先复制下来。",
   "errors.feedbackFailed": "消息没发出去，详情见插件日志。",
+  "errors.feedbackBusy": "通道现在有点忙 —— 内容没丢。过一分钟再点一次「发送」就能送出去。",
   "errors.feedbackTooSoon": "刚发过一条，{seconds} 秒后再试。",
   "errors.feedbackTooLong": "内容是 {size} KB，这条通道大约能收 {limit} KB。**没有发出去** —— 请稍作精简，或者分两次发。",
   "ui.subtitle": "她注意到改动，她开口，记录留在这里",
