@@ -202,5 +202,12 @@
   "ui.switch.confirmAfter": "Wait {seconds}s before confirming the turn-off.",
   "ui.herLine.reasonLabel": "Her reason:",
   "ui.feedback.attachments.unsupported": "This channel does not accept attachments (measured: the relay silently drops files).",
-  "ui.feedback.attachments.useTracker": "To send screenshots or patches, use the issue tracker:"
+  "ui.feedback.attachments.useTracker": "To send screenshots or patches, use the issue tracker:",
+  "actions.pinBackup.label": "Keep this backup",
+  "entry.pinBackup.name": "Keep or release a memory backup",
+  "entry.pinBackup.description": "Mark one of her memory backups so the daily rotation leaves it alone — the copy you want to keep, e.g. before a big change. Take the name from list_memory_backups; pass pinned=false to release it again.",
+  "errors.backupNameRequired": "Which backup? Pass the name shown by list_memory_backups.",
+  "errors.backupNotFound": "There is no backup called '{name}' — check the name list_memory_backups gave you.",
+  "messages.backupPinned": "That backup is kept forever now; the automatic cleanup will leave it alone.",
+  "messages.backupUnpinned": "Released — that backup is back on the normal rotation."
 }

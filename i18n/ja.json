@@ -202,5 +202,12 @@
   "ui.switch.confirmAfter": "オフの確認にはあと {seconds} 秒お待ちください。",
   "ui.herLine.reasonLabel": "彼女の理由：",
   "ui.feedback.attachments.unsupported": "このチャンネルは添付に対応していません（実測：中継はファイルを黙って破棄します）。",
-  "ui.feedback.attachments.useTracker": "スクリーンショットやパッチを送るには、Issue トラッカーを使ってください："
+  "ui.feedback.attachments.useTracker": "スクリーンショットやパッチを送るには、Issue トラッカーを使ってください：",
+  "actions.pinBackup.label": "このバックアップを保持",
+  "entry.pinBackup.name": "メモリバックアップの保持／解除",
+  "entry.pinBackup.description": "メモリバックアップを長期保持としてマークし、以後の自動整理で消えないようにします。大きな変更の前に残しておきたいときに。名前は「メモリバックアップ一覧」から取得し、pinned=false で解除できます。",
+  "errors.backupNameRequired": "どのバックアップですか？「メモリバックアップ一覧」に表示された名前を渡してください。",
+  "errors.backupNotFound": "「{name}」という名前のバックアップはありません —— 「メモリバックアップ一覧」の名前を確認してください。",
+  "messages.backupPinned": "長期保持としてマークしました。以後の自動整理では削除されません。",
+  "messages.backupUnpinned": "保持を解除しました。このバックアップは通常のローテーションに戻ります。"
 }

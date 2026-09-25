@@ -72,6 +72,7 @@ from .memory_backup import (
     resolve_memory_root,
     restore_file,
     scan_memory,
+    set_pinned,
 )
 from .memory_guard import (
     MemoryChange,
@@ -1713,6 +1714,97 @@ class DignityGuardPlugin(NekoPluginBase):
                     "messages.guard_level_changed",
                     default="The dignity guard level is now '{level}'.",
                     level=self._tier,
+                ),
+            }
+        )
+
+    @ui.action(
+        id="pin_backup",
+        label=tr("actions.pinBackup.label", default="Keep this backup"),
+        icon="📌",
+        tone="default",
+        group="memory",
+        order=31,
+        refresh_context=True,
+    )
+    @plugin_entry(
+        id="pin_backup",
+        name=tr("entry.pinBackup.name", default="Keep or release a memory backup"),
+        description=tr(
+            "entry.pinBackup.description",
+            default=(
+                "Mark one of her memory backups so the daily rotation leaves it "
+                "alone — the copy you want to keep, e.g. before a big change. "
+                "Pass pinned=false to release it again. Take the name from "
+                "list_memory_backups."
+            ),
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "backup": {"type": "string", "maxLength": 128},
+                "pinned": {"type": "boolean"},
+            },
+            "required": ["backup"],
+            "additionalProperties": False,
+        },
+        timeout=30.0,
+    )
+    async def pin_backup(self, backup: str = "", pinned: bool = True, **_):
+        """Pin (or unpin) one backup so the retention window leaves it alone.
+
+        This is the entry the ``pinned`` machinery never had. ``PINNED_MARKER``,
+        ``BackupInfo.pinned`` and the pinned branch of ``plan_retention`` all
+        existed and ``list_backups`` dutifully read the marker — but **nothing
+        could write it**, so "a milestone is kept forever" was unreachable and
+        every backup aged out on schedule no matter what the user meant to keep.
+        """
+        name = str(backup or "").strip()
+        if not name:
+            return Err(
+                SdkError(
+                    self._text(
+                        "errors.backupNameRequired",
+                        default=(
+                            "Which backup? Pass the name shown by "
+                            "list_memory_backups."
+                        ),
+                    ),
+                    code="invalid_argument",
+                )
+            )
+        # ``pinned`` may arrive as ``null`` from a caller that omitted the key.
+        # Treat that as the default (pin it), not as "release it".
+        pinned = True if pinned is None else bool(pinned)
+
+        ok = await asyncio.to_thread(
+            set_pinned, self._memory_backup_root(), name, pinned=pinned
+        )
+        if not ok:
+            return Err(
+                SdkError(
+                    self._text(
+                        "errors.backupNotFound",
+                        default=(
+                            "There is no backup called '{name}' to mark — check "
+                            "the name list_memory_backups gave you."
+                        ),
+                        name=name,
+                    ),
+                    code="backup_not_found",
+                )
+            )
+        return Ok(
+            {
+                "status": "pinned" if pinned else "unpinned",
+                "backup": name,
+                "message": self._text(
+                    "messages.backupPinned" if pinned else "messages.backupUnpinned",
+                    default=(
+                        "That backup is kept forever now."
+                        if pinned
+                        else "That backup is back on the normal rotation."
+                    ),
                 ),
             }
         )

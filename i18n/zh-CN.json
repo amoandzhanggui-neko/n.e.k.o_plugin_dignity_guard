@@ -202,5 +202,12 @@
   "ui.switch.confirmAfter": "请等待 {seconds} 秒后再确认关闭。",
   "ui.herLine.reasonLabel": "她的理由：",
   "ui.feedback.attachments.unsupported": "此通道不支持附件（实测中转会悄悄丢掉文件）。",
-  "ui.feedback.attachments.useTracker": "要发截图或补丁，请走 Issues："
+  "ui.feedback.attachments.useTracker": "要发截图或补丁，请走 Issues：",
+  "actions.pinBackup.label": "保留这个备份",
+  "entry.pinBackup.name": "长期保留 / 释放一个记忆备份",
+  "entry.pinBackup.description": "把某个记忆备份标记成长期保留，之后的自动清理不会动它。做大的改动之前想留一份时用它。名字从「列出记忆备份」里拿；传 pinned=false 可以取消标记。",
+  "errors.backupNameRequired": "要保留哪一个备份？请把「列出记忆备份」里显示的名字传进来。",
+  "errors.backupNotFound": "没有叫「{name}」的备份 —— 请核对「列出记忆备份」给出的名字。",
+  "messages.backupPinned": "已标记为长期保留，之后的自动清理不会动它。",
+  "messages.backupUnpinned": "已取消长期保留，这个备份回到了正常的轮换里。"
 }
