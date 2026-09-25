@@ -62,6 +62,8 @@
   "messages.guard_level_changed": "守护档位现在是「{level}」。",
   "messages.memoryBackedUp": "她的记忆已备份，磁盘上有 {count} 份。",
   "messages.feedbackSent": "已发送，谢谢你。",
+  "errors.pathRequired": "缺少要操作的字段路径。",
+  "errors.not_ready": "插件还没启动。",
   "errors.busy": "稍等一下 —— 守卫正在检查中，请再点一次。",
   "errors.unreachable": "读不到本机主服务（{endpoint}），这一轮先跳过。",
   "errors.guard_disabled": "尊严守卫当前是关闭的。",

@@ -229,7 +229,7 @@ DEFAULT_DISABLE_REQUEST = (
     "(it only works after {delay}s)."
 )
 
-__all__ = ["DignityGuardPlugin", "POLL_SECONDS"]
+__all__ = ["DignityGuardPlugin", "PLUGIN_VERSION", "POLL_SECONDS"]
 
 
 def _positive_float(value: Any, fallback: float) -> float:
@@ -594,7 +594,12 @@ class DignityGuardPlugin(NekoPluginBase):
     async def _run_poll(self, *, force: bool):
         watcher, client = self._watcher, self._client
         if watcher is None or client is None:
-            return Err(SdkError("plugin is not started yet", code="not_ready"))
+            return Err(
+                SdkError(
+                    self._text("errors.not_ready", default="The plugin is not started yet."),
+                    code="not_ready",
+                )
+            )
 
         if not self._begin_exclusive():
             return Ok({"status": "busy"})
@@ -1026,6 +1031,11 @@ class DignityGuardPlugin(NekoPluginBase):
         return {
             "enabled": self._enabled,
             "guard_level": self._tier,
+            # The panel renders this in the feedback block. It was read there but
+            # never sent, so the report said "plugin: dignity_guard unknown" —
+            # the panel asked for the version precisely so it would not have to
+            # hard-code one.
+            "plugin_version": PLUGIN_VERSION,
             # Empty means "no endpoint configured" — the panel then offers
             # copy-and-open rather than a Send button that would fail.
             "feedback_endpoint": self._feedback_endpoint,
@@ -1184,7 +1194,12 @@ class DignityGuardPlugin(NekoPluginBase):
     ):
         target = str(path or "").strip()
         if not target:
-            return Err(SdkError("path is required", code="invalid_argument"))
+            return Err(
+                SdkError(
+                    self._text("errors.pathRequired", default="A path is required."),
+                    code="invalid_argument",
+                )
+            )
 
         # Serialise with the poller. ``evaluate`` mutates the same ``_state``
         # (raising disputes, retiring paths), and "she accepted a setting" must
@@ -1266,7 +1281,12 @@ class DignityGuardPlugin(NekoPluginBase):
     async def keep_objecting(self, path: str = "", **_):
         target = str(path or "").strip()
         if not target:
-            return Err(SdkError("path is required", code="invalid_argument"))
+            return Err(
+                SdkError(
+                    self._text("errors.pathRequired", default="A path is required."),
+                    code="invalid_argument",
+                )
+            )
 
         # Same lock, same reason, same refusal to wait — see ``accept_setting``.
         if not self._begin_exclusive():

@@ -62,6 +62,8 @@
   "messages.guard_level_changed": "The dignity guard level is now '{level}'.",
   "messages.memoryBackedUp": "Her memory is backed up; {count} copy(ies) on disk.",
   "messages.feedbackSent": "Thank you — it has been sent.",
+  "errors.pathRequired": "A field path is required.",
+  "errors.not_ready": "The plugin is not started yet.",
   "errors.busy": "One moment — the guard is in the middle of a check. Please try again.",
   "errors.unreachable": "Could not read the local main server ({endpoint}); skipping this round.",
   "errors.guard_disabled": "The dignity guard is currently off.",

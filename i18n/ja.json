@@ -62,6 +62,8 @@
   "messages.guard_level_changed": "見守りレベルは「{level}」になりました。",
   "messages.memoryBackedUp": "彼女の記憶をバックアップしました。ディスク上に {count} 件あります。",
   "messages.feedbackSent": "送信しました。ありがとうございます。",
+  "errors.pathRequired": "操作する項目のパスが必要です。",
+  "errors.not_ready": "プラグインはまだ起動していません。",
   "errors.busy": "少々お待ちください —— ガードが確認中です。もう一度お試しください。",
   "errors.unreachable": "ローカルのメインサーバー（{endpoint}）を読めませんでした。今回は見送ります。",
   "errors.guard_disabled": "尊厳ガードは現在オフです。",
