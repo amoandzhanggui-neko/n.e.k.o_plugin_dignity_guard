@@ -84,6 +84,7 @@ from .settings_guard import (
     DEFAULT_TIER,
     GUARD_SWITCH_PATH,
     REVERTIBLE_CATFIELDS,
+    TIER_HIGH,
     TIERS,
     Evaluation,
     GuardState,

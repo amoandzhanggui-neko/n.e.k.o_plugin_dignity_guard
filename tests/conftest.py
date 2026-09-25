@@ -21,6 +21,11 @@ class FakeMainServer:
 
     def __init__(self) -> None:
         self.revision = 1
+        # A transport/telemetry field that lives at the *top* level of the
+        # conversation-settings payload (see ``payload_for``). Exposed as an
+        # attribute rather than inlined so a test can flip it: a field nobody
+        # ever changes proves nothing about whether it is ignored.
+        self.telemetry_branch = "main"
         self.settings: dict[str, Any] = {
             "proactiveChatEnabled": True,
             "userLanguage": "zh",
@@ -41,7 +46,21 @@ class FakeMainServer:
         }
         self.page_config: dict[str, Any] = {"model_path": "雪.model3.json", "model_type": "live2d"}
         self.core_api: dict[str, Any] = {"api_key": "sk-do-not-store", "ttsModelProvider": "qwen"}
-        self.preferences: dict[str, Any] = {"model-a": {"position": [10, 20], "scale": 1.0}}
+        # Real ``/api/config/preferences`` is a list of structures whose third
+        # entry is a mirror of the global conversation settings (marked with
+        # ``model_path == "__global_conversation__"``) — see
+        # ``main_server_client.prune_mirrored_preferences`` and the
+        # ``_flatten_into`` list-descent branch in ``settings_guard``. The old
+        # dict fixture never exercised that index-based descent at all.
+        self.preferences: Any = [
+            {"position": [10, 20], "scale": 1.0},
+            {"position": [30, 40], "scale": 2.0},
+            {
+                "model_path": "__global_conversation__",
+                "proactiveChatEnabled": True,
+                "proactiveVisionInterval": 30,
+            },
+        ]
         self.user_language = "zh"
 
     def bump_revision(self) -> None:
@@ -54,8 +73,10 @@ class FakeMainServer:
                 "settings": dict(self.settings),
                 "revision": self.revision,
                 "decisions": {},
-                # Deliberately present: the plugin must ignore it.
-                "telemetryBranch": "main",
+                # Deliberately present at the top level: ``conversation_slice``
+                # keeps only ``settings`` and ``decisions``, and this is the field
+                # that proves the dropping is real.
+                "telemetryBranch": self.telemetry_branch,
             }
             return 200, body, {"ETag": f'"conversation-settings-{self.revision}"'}
         if path == "/api/config/user_language":
@@ -67,7 +88,9 @@ class FakeMainServer:
         if path == "/api/config/core_api":
             return 200, dict(self.core_api), {}
         if path == "/api/config/preferences":
-            return 200, dict(self.preferences), {}
+            # Preferences is a list in production; copy it so a test that mutates
+            # an entry does not leak into the next test.
+            return 200, list(self.preferences), {}
         return None
 
 

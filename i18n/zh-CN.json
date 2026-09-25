@@ -199,5 +199,8 @@
   "ui.feedback.copyFailed": "复制失败，请手动选中下面的内容复制（Ctrl+C）。",
   "ui.feedback.opened": "已尝试在浏览器中打开反馈页。",
   "ui.action.confirmDisable": "确认关闭",
-  "ui.switch.confirmAfter": "请等待 {seconds} 秒后再确认关闭。"
+  "ui.switch.confirmAfter": "请等待 {seconds} 秒后再确认关闭。",
+  "ui.herLine.reasonLabel": "她的理由：",
+  "ui.feedback.attachments.unsupported": "此通道不支持附件（实测中转会悄悄丢掉文件）。",
+  "ui.feedback.attachments.useTracker": "要发截图或补丁，请走 Issues："
 }

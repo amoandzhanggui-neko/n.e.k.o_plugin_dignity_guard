@@ -61,9 +61,13 @@ def test_window_geometry_is_l3() -> None:
 def test_dotted_model_path_still_lands_on_a_known_level() -> None:
     """A Windows model path key splits into extra segments.
 
-    The prefix rules cannot match it, so the leaf-name fallback has to carry
-    the classification — otherwise a window move would be treated as L2 and
-    she would be asked about every resize.
+    The path ``preferences.C:/models/雪.model3.json.position`` has more dotted
+    segments than the three-segment rules expect, so the specific
+    ``preferences.*.position`` rule cannot anchor on it. The two-segment
+    ``preferences.*`` prefix rule still matches, though, and it selects L3 —
+    so the window move stays L3 and she is not asked about every resize. The
+    leaf-name fallback (``position`` → L3) would have saved it too, but the
+    prefix rule is what actually carries the call here.
     """
     path = "preferences.C:/models/雪.model3.json.position"
     assert classify(path) == LEVEL_L3
@@ -102,6 +106,55 @@ def test_lists_are_leaves() -> None:
     snapshot = flatten({"position": [1, 2, 3]}, "preferences")
     assert list(snapshot) == ["preferences.position"]
     assert snapshot["preferences.position"].kind == "list"
+
+
+def test_a_list_of_mappings_descends_by_index() -> None:
+    # ``/api/config/preferences`` arrives as a list of per-window mappings, not a
+    # single dict. Flattening must index into it so that index-specific rules
+    # (e.g. ``preferences.*.position``) can still match — collapsing the whole
+    # list to one opaque leaf would lump window geometry and autonomy flags
+    # under a single level, which is wrong in one direction or the other.
+    preferences = [
+        {"position": [10, 20], "scale": 1.0},
+        {"position": [30, 40], "scale": 2.0},
+    ]
+    snapshot = flatten(preferences, "preferences")
+    assert list(snapshot) == [
+        "preferences.0.position",
+        "preferences.0.scale",
+        "preferences.1.position",
+        "preferences.1.scale",
+    ]
+    assert snapshot["preferences.0.position"].kind == "list"
+    assert snapshot["preferences.1.scale"].kind == "number"
+
+
+def test_a_mid_list_insert_shifts_indices() -> None:
+    # Inserting a window in the middle of the list shifts every later index.
+    # Because flatten descends by index, the new window surfaces as a path that
+    # did not exist before and the shifted ones change at their new indices —
+    # the diff must not silently swallow the insertion or mislabel it.
+    before = flatten(
+        [
+            {"position": [10, 20]},
+            {"position": [30, 40]},
+        ],
+        "preferences",
+    )
+    after = flatten(
+        [
+            {"position": [10, 20]},
+            {"position": [99, 99]},  # inserted in the middle
+            {"position": [30, 40]},
+        ],
+        "preferences",
+    )
+    changed_paths = {c.path for c in diff_snapshots(before, after)}
+    # Index 0 is untouched; the inserted window is new at index 1 and the old
+    # index-1 window moved to index 2.
+    assert "preferences.0.position" not in changed_paths
+    assert "preferences.1.position" in changed_paths
+    assert "preferences.2.position" in changed_paths
 
 
 def test_secret_leaves_are_redacted_but_tracked() -> None:

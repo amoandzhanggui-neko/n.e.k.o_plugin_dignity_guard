@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
@@ -23,10 +24,16 @@ from plugin.plugins.dignity_guard.feedback import (
     DEFAULT_FEEDBACK_TIMEOUT,
     DEFAULT_REFERER,
     FEEDBACK_RETRY_DELAYS,
+    TOTAL_BUDGET_SECONDS,
     FeedbackRateLimited,
     FeedbackUndeliverable,
     deliver,
 )
+
+#: Matches the ``timeout`` declared on the ``submit_feedback`` entry. See
+#: ``__init__.py`` (the ``@plugin_entry(id="submit_feedback", timeout=75.0)``).
+#: The whole ``deliver`` call must finish inside it.
+SUBMIT_FEEDBACK_ENTRY_TIMEOUT = 75.0
 
 
 class _Recorder(BaseHTTPRequestHandler):
@@ -44,6 +51,10 @@ class _Recorder(BaseHTTPRequestHandler):
     #: trap this module must not mis-classify as a hard failure.
     body_refusal_times: int = 0
     body_refusal_body: dict = {}
+    #: If set, a 429 response carries this ``Retry-After`` header so the
+    #: budget-clipping path (not the fixed ``FEEDBACK_RETRY_DELAYS``) can be
+    #: exercised.
+    retry_after: str = ""
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib naming
         length = int(self.headers.get("Content-Length") or 0)
@@ -65,6 +76,8 @@ class _Recorder(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
+        if status == 429 and type(self).retry_after:
+            self.send_header("Retry-After", type(self).retry_after)
         self.end_headers()
         self.wfile.write(payload)
 
@@ -212,9 +225,33 @@ def test_the_backoff_fits_inside_the_entry_timeout() -> None:
     """Total waiting has to stay under what the SDK will allow for the action.
 
     A backoff longer than the entry timeout does not buy a retry — it buys a
-    timeout, which looks like a hang to the person waiting.
+    timeout, which looks like a hang to the person waiting. The budget is not
+    just the retries: every attempt also spends the default request timeout, and
+    the whole ``deliver`` call must land inside the entry timeout or the SDK
+    kills it first.
     """
-    assert sum(FEEDBACK_RETRY_DELAYS) <= 30.0
+    attempts = len(FEEDBACK_RETRY_DELAYS) + 1
+    spent = attempts * DEFAULT_FEEDBACK_TIMEOUT + sum(FEEDBACK_RETRY_DELAYS)
+    assert spent <= SUBMIT_FEEDBACK_ENTRY_TIMEOUT
+
+
+async def test_a_huge_retry_after_is_clipped_to_the_budget(
+    endpoint: str, monkeypatch
+) -> None:
+    """A server that says "come back in an hour" must not cost an hour.
+
+    ``Retry-After`` is honoured, but only up to the time ``deliver`` is willing
+    to spend. Anything beyond the budget is clipped — otherwise a single rude
+    relay could hold the whole action hostage until the SDK times it out.
+    """
+    monkeypatch.setattr(feedback_module, "FEEDBACK_RETRY_DELAYS", (0.0, 0.0))
+    _Recorder.reply_status = 429
+    _Recorder.retry_after = "3600"
+    with pytest.raises(FeedbackRateLimited):
+        await deliver(endpoint, {"message": "hello"})
+    # The clip lives in the module; assert the declared ceiling is the only thing
+    # a pathological Retry-After can approach, so the test documents the bound.
+    assert TOTAL_BUDGET_SECONDS <= SUBMIT_FEEDBACK_ENTRY_TIMEOUT
 
 
 def test_the_relay_is_not_hammered() -> None:

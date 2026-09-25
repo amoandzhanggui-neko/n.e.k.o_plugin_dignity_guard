@@ -118,7 +118,7 @@ def test_geometry_changes_are_recorded_without_raising(main_server) -> None:
         watcher = SettingsWatcher(client, state, full_rescan_seconds=0.5)
         try:
             await watcher.poll(now=10.0)
-            fake.preferences["model-a"]["position"] = [999, 999]
+            fake.preferences[0]["position"] = [999, 999]
             evaluation = await watcher.poll(now=11.0)
             return evaluation, state.pending()
         finally:
@@ -126,7 +126,8 @@ def test_geometry_changes_are_recorded_without_raising(main_server) -> None:
 
     evaluation, pending = asyncio.run(scenario())
 
-    assert [c.path for c in evaluation.recorded] == ["preferences.model-a.position"]
+    # Preferences is a list in production, so geometry lives at the index path.
+    assert [c.path for c in evaluation.recorded] == ["preferences.0.position"]
     assert evaluation.recorded[0].level == LEVEL_L3
     assert evaluation.raised == []
     assert pending == []
@@ -189,7 +190,15 @@ def test_credentials_are_never_written_to_the_record(main_server) -> None:
 
 
 def test_engine_metadata_is_not_mistaken_for_a_setting(main_server) -> None:
-    """``telemetryBranch`` changes on its own and must not raise a dispute."""
+    """``telemetryBranch`` changes on its own and must not raise a dispute.
+
+    The bug this guards against: the old test only ever changed ``userLanguage``
+    (which *is* a real change) and never touched ``telemetryBranch``. A field
+    that never changes produces no diff no matter what, so the test passed
+    whether or not ``conversation_slice`` filtered ``telemetryBranch`` out —
+    it proved nothing. Here we actually flip ``telemetryBranch`` and assert it
+    produces no change.
+    """
     fake, base_url = main_server
 
     async def scenario():
@@ -198,7 +207,12 @@ def test_engine_metadata_is_not_mistaken_for_a_setting(main_server) -> None:
         watcher = SettingsWatcher(client, state, full_rescan_seconds=0.5)
         try:
             await watcher.poll(now=1.0)
-            fake.settings["userLanguage"] = "en"  # unrelated real change
+            # Top level, not inside ``settings``: ``conversation_slice`` keeps
+            # only ``settings``/``decisions``, so the top level is where a
+            # transport/telemetry field actually lives. Putting it inside
+            # ``settings`` would make it a real setting change and the test would
+            # then be measuring something else entirely.
+            fake.telemetry_branch = "dev"  # engine metadata, not a setting
             evaluation = await watcher.poll(now=2.0)
             return evaluation
         finally:
@@ -206,4 +220,4 @@ def test_engine_metadata_is_not_mistaken_for_a_setting(main_server) -> None:
 
     evaluation = asyncio.run(scenario())
 
-    assert [c.path for c in evaluation.changes] == ["conversation.settings.userLanguage"]
+    assert evaluation.changes == []

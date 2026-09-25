@@ -32,10 +32,9 @@ import shutil
 import sqlite3
 import time
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Mapping
 
 from .memory_guard import (
-    LIVE_DATABASE_SUFFIXES,
     BackupInfo,
     MAX_DIGEST_BYTES,
     MemoryFile,

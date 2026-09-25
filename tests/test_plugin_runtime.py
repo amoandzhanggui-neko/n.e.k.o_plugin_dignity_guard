@@ -42,7 +42,17 @@ class _Ctx:
             "dignity_guard": {
                 "main_server_base_url": base_url,
                 "full_rescan_seconds": 0.01,
-                "disable_consent_delay_seconds": 0.05,
+                # The window cannot be as tight as it looks it could be.
+                # set_guard_enabled now writes the pending request to the store
+                # *before* it hands the token back (otherwise "call again with
+                # this token later" does not survive a restart), and that write is
+                # real IO. This was 0.05s — shorter than the write itself on a
+                # loaded machine — so the impatient-retry assertion below turned
+                # into "the delay has already elapsed" and the test failed
+                # intermittently. 0.5s leaves it ten times the headroom without
+                # changing what the test actually checks (that the gate exists,
+                # not where exactly it sits).
+                "disable_consent_delay_seconds": 0.5,
             },
             **(config or {}),
         }
@@ -202,7 +212,9 @@ def test_the_guard_switch_is_easy_on_and_hard_off(sandbox, main_server) -> None:
             too_early = await plugin.set_guard_enabled(enabled=False, consent_token=token)
             wrong = await plugin.set_guard_enabled(enabled=False, consent_token="not-the-token")
 
-            await asyncio.sleep(0.08)
+            # Sit out the (deliberately generous) consent window above, and a
+            # little more, so the retry lands squarely on the "ready" side.
+            await asyncio.sleep(0.7)
             confirmed = await plugin.set_guard_enabled(enabled=False, consent_token=token)
 
             disabled_dashboard = await plugin.get_dashboard()
@@ -265,6 +277,8 @@ def test_the_record_survives_a_restart(sandbox, main_server) -> None:
         plugin = DignityGuardPlugin(_Ctx(base_url=base_url))
         await plugin.on_startup()
         await plugin.check_now()
+        # Choose the high tier so we can prove it survives a restart.
+        await plugin.set_guard_level("high")
         fake.settings["proactiveChatEnabled"] = False
         fake.bump_revision()
         await plugin.check_now()
@@ -275,6 +289,12 @@ def test_the_record_survives_a_restart(sandbox, main_server) -> None:
     async def second_run() -> dict[str, Any]:
         plugin = DignityGuardPlugin(_Ctx(base_url=base_url))
         await plugin.on_startup()
+        # The persisted tier must have been restored into BOTH the plugin and the
+        # watcher. This is the regression guard for P0 "on_startup never injected
+        # the persisted tier into the watcher": the panel would say "high" while
+        # the engine ran "medium".
+        assert plugin._tier == "high"
+        assert plugin._watcher.tier == "high"
         # Same settings as the end of the first run: it must not re-raise.
         quiet = await plugin.check_now()
         dashboard = await plugin.get_dashboard()
@@ -306,3 +326,71 @@ def test_an_unreachable_main_server_is_reported_not_raised(sandbox) -> None:
 
     assert isinstance(result, Err)
     assert result.error.code == "main_server_unreachable"
+
+
+def test_dashboard_opens_before_the_first_poll(sandbox, main_server) -> None:
+    """Opening the panel before any successful poll must not crash it.
+
+    P0 reported that ``get_dashboard`` dereferenced ``last_probe.revision`` while
+    ``last_probe`` was still ``None`` (the watcher only assigns it after the first
+    successful poll), so the panel threw ``AttributeError`` and failed to load at
+    exactly the moment it should have shown ``last_error``. Every other test opens
+    the dashboard only after a ``check_now()``, which is why that stayed green.
+    """
+    fake, base_url = main_server
+    ctx = _Ctx(base_url=base_url)
+    plugin = DignityGuardPlugin(ctx)
+
+    async def scenario() -> dict[str, Any]:
+        try:
+            await plugin.on_startup()
+            # No check_now() yet: last_probe is None by design.
+            dashboard = await plugin.get_dashboard()
+            return dashboard
+        finally:
+            await plugin.on_shutdown()
+
+    dashboard = asyncio.run(scenario())
+
+    # Opened fine, and the not-yet-polled state is reported honestly.
+    assert dashboard["revision"] is None
+    # The newly-downstreamed fields are present (see get_dashboard).
+    assert "feedback_body_limit_bytes" in dashboard
+    assert "feedback_envelope_bytes" in dashboard
+    assert "her_reason" in dashboard
+    assert "attachments_supported" in dashboard
+    assert "issue_tracker" in dashboard
+
+
+def test_dashboard_opens_when_the_main_server_is_unreachable(sandbox) -> None:
+    """Same guard, but the main server never answers — last_probe stays None too.
+
+    Two things are being checked, and they are different:
+      * the panel opens *before* any poll has succeeded — which is the P0 this
+        guards against (``last_probe`` is None, ``get_dashboard`` used to raise
+        ``AttributeError``, and the whole panel failed to load at exactly the
+        moment it was needed most);
+      * ``last_error`` is empty then, and filled in once a poll has actually
+        been attempted and failed. Asserting it non-empty right after
+        ``on_startup`` would have been asserting something ``on_startup`` never
+        promised: it starts the timer, it does not poll.
+    """
+    ctx = _Ctx(base_url="http://127.0.0.1:9")
+    plugin = DignityGuardPlugin(ctx)
+
+    async def scenario() -> dict[str, Any]:
+        try:
+            await plugin.on_startup()
+            before = await plugin.get_dashboard()
+            failed = await plugin.check_now()
+            after = await plugin.get_dashboard()
+            return {"before": before, "failed": failed, "after": after}
+        finally:
+            await plugin.on_shutdown()
+
+    result = asyncio.run(scenario())
+
+    assert result["before"]["revision"] is None
+    assert result["before"]["last_error"] == ""
+    assert isinstance(result["failed"], Err)
+    assert result["after"]["last_error"]

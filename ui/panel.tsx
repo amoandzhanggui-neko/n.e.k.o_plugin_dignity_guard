@@ -74,10 +74,22 @@ type DashboardState = {
   //: 面板直接引用原话，不做转述 —— 这是插件里唯一一件"由她定"的事。
   revertible_fields?: string[]
   her_words?: string
+  //: 她**为什么**护着那几个字段的原话（后端 HER_PROTECTION_REASON）。
+  //: 语义：「清单本身说不出、但必须让她自己说的那部分」。理由即出处，
+  //: 中/英/日界面看到的都是这同一句中文原话（同 her_words 的设计），不再翻译。
+  her_reason?: string
   //: 反馈中转地址（后端按配置给）。原来只有运行时读、类型里没声明 ——
   //: 严格 TS 下这属于「读了类型里不存在的字段」，也会让下一个读代码的人
   //: 以为它是可选的意外字段。
   feedback_endpoint?: string
+  //: 反馈页地址（Issues 预填页），后端按配置下发。原来前端写死了一份，
+  //: 改成以这里下发的为准，避免将来仓库改名时「前端 / 后端两处」漂移。
+  //: 实测恒为同一个地址。
+  issue_tracker?: string
+  //: 反馈通道是否支持附件。后端实测恒为 false（relay 对 multipart 回
+  //: ``success:true`` 却把文件丢掉 —— ``has_attachments: false``）。前端据此
+  //: 明说「此通道不收附件」并指向 issue_tracker。
+  attachments_supported?: boolean
   pending_count?: number
   pending?: PendingItem[]
   authorized?: AuthorizedItem[]
@@ -107,6 +119,11 @@ type DashboardState = {
   //: 写死在正文里（"v0.1.0"），升版本时没人会记得改它 —— 而报告里的版本
   //: 号恰恰是维护者判断"这个问题修没修"的依据，说错了比不说更糟。
   plugin_version?: string
+  //: 反馈 HTTP body 的硬上限（字节，默认 65536 = 64 KB），含诊断报告与 JSON 包装。
+  feedback_body_limit_bytes?: number
+  //: 上述 body 里「固定开销」的字节数（诊断报告 + 主题 + JSON 脚手架，默认 1024）。
+  //: 用户能写的正文上限 = feedback_body_limit_bytes - feedback_envelope_bytes。
+  feedback_envelope_bytes?: number
   memory?: MemoryState
 }
 
@@ -162,21 +179,29 @@ export default function DignityGuardPanel(
   const clipboard = useClipboard()
   const feedbackEndpoint = (state.feedback_endpoint || "").trim()
   const canSendDirectly = feedbackEndpoint.length > 0 && hasAction("submit_feedback")
-  // 与 Python 侧同一口径：UTF-8 编码后的字节数（中文一个字 = 3 字节）。
-  // 摆在这儿是为了让用户**边写边看见**，而不是写完按了发送才发现发不出去。
-  // 与服务端同一个口径：上限属于**整个 HTTP body**（64 KB）。扣掉诊断报告
-  // （实测 522 字节）和 JSON 包装后，正文仍有 63 KB 可用。
-  // 标"能写满的最大值"而不是保守值 —— 标低了不会报错，只会让人少写，
-  // 而那是一种看不见的损失。
-  const FEEDBACK_LIMIT_KB = 63
+  // attachments_supported 后端实测恒为 false；显式比较 true，缺字段时当"不支持"
+  // 处理（更保守、更诚实，不会假装能传）。
+  const attachmentsSupported = state.attachments_supported === true
+  // 字节口径以后端下发的权威值为准（get_dashboard 保证返回）：
+  //   整个 HTTP body ≤ feedback_body_limit_bytes（默认 64 KB），
+  //   其中固定开销 feedback_envelope_bytes（默认 1024，含诊断报告+主题+JSON 脚手架）。
+  // 所以用户能写的正文上限 = 两者之差。后端没下发时给兜底（并注释，
+  // 避免上游改了默认值我们这一侧悄悄对不齐）。
+  const feedbackBodyLimitBytes =
+    (state.feedback_body_limit_bytes ?? 65536) - (state.feedback_envelope_bytes ?? 1024)
+  // 用 UTF-8 字节数计（中文一个字 3 字节）；用 .length 是字符数会低估三倍。
+  // 摆在这儿让用户**边写边看见**，而不是写完按了发送才发现发不出去。
   const feedbackBytes =
     typeof TextEncoder !== "undefined" ? new TextEncoder().encode(fbText).length : fbText.length
   const feedbackKB = Math.round((feedbackBytes / 1024) * 10) / 10
-  const feedbackTooLong = feedbackBytes > FEEDBACK_LIMIT_KB * 1024
-  // 没有接收地址时的退路：插件仓库的 Issues 预填页。
-  // ⚠️ 仓库尚未创建，建好后把这里换成真实链接。
-  const FALLBACK_URL =
-    "https://github.com/amoandzhanggui-neko/n.e.k.o_plugin_dignity_guard/issues/new"
+  const feedbackLimitKB = Math.round((feedbackBodyLimitBytes / 1024) * 10) / 10
+  const feedbackTooLong = feedbackBytes > feedbackBodyLimitBytes
+  // 反馈页地址改为以后端下发的 issue_tracker 为准（get_dashboard 保证返回）。
+  // ⚠️ 后端值和前端原硬编码 FALLBACK_URL 是同一个地址；这里只在极端情况下
+  // （state 缺字段）回退到字面量，避免打开空链接。改仓库名时改后端一处即可，
+  // 不要再在前端另写一份。
+  const issueTracker =
+    state.issue_tracker || "https://github.com/amoandzhanggui-neko/n.e.k.o_plugin_dignity_guard/issues/new"
 
   /** 组装要提交的正文：用户写的内容 + 自动附带的环境信息。
    *
@@ -277,15 +302,16 @@ export default function DignityGuardPanel(
     //
     // 因此这里**不**用返回值判断成败（window.open 永远返回 null），而是走
     // 官方 postMessage 通道；能打开就给个中性提示，真被拦下（抛异常）再报错。
+    // 打开的地址用后端下发的 issue_tracker（删掉了前端硬编码那份）。
     try {
       parent.postMessage(
-        { type: "neko-hosted-surface-open-external", payload: { url: FALLBACK_URL } },
+        { type: "neko-hosted-surface-open-external", payload: { url: issueTracker } },
         hostedTargetOrigin(),
       )
       // postMessage 不抛异常就当作已送达，给个中性提示；真正失败（被拦）会进 catch。
       toast.success(t("ui.feedback.opened"))
     } catch {
-      toast.error(`${t("ui.feedback.openFailed")} ${FALLBACK_URL}`)
+      toast.error(`${t("ui.feedback.openFailed")} ${issueTracker}`)
     }
   }
 
@@ -503,7 +529,12 @@ export default function DignityGuardPanel(
                   后端改了中文原文时这里不会自动跟着变。若哪天那句话变了，
                   `i18n/{en,ja}.json` 里的 `ui.herLine.statement` 要一起改。 */}
               <Tip>{t("ui.herLine.statement")}</Tip>
-              <Tip>{t("ui.herLine.reason")}</Tip>
+              {/* ``her_reason`` 是她**为什么**护着那些字段的原话（后端 HER_PROTECTION_REASON）。
+                  和 her_words 一样：理由即出处，中/英/日界面看到的都是同一句中文原话，
+                  不再翻译。标签用 i18n 键，理由本身直接吐后端原文。 */}
+              {state.her_reason ? (
+                <Text>{`${t("ui.herLine.reasonLabel")} ${state.her_reason}`}</Text>
+              ) : null}
             <Inline gap={8} wrap>
               {(state.revertible_fields ?? []).map((field: string) => (
                 <StatusBadge key={field} tone="danger" label={field} />
@@ -876,25 +907,36 @@ export default function DignityGuardPanel(
           <Text>
             {t("ui.feedback.sizeHint", {
               size: String(feedbackKB),
-              limit: String(FEEDBACK_LIMIT_KB),
+              limit: String(feedbackLimitKB),
             })}
           </Text>
           {feedbackTooLong ? (
             <Alert tone="warning" message={t("ui.feedback.tooLong")} />
           ) : null}
 
-          {/* ★ 附件：这条通道不收（实测：中转会静默丢掉附件）。
+          {/* ★ 附件：这个通道恒不收（实测：中转会静默丢掉附件）。
               不假装能传，而是给出**两条真能走的路**，并且**省事的那条放前面** ——
               顺序若反过来，用户看到"要注册"就走了，后面那条更省事的他根本没读到。 */}
           <Divider />
           <Stack gap={6}>
             <Text>{t("ui.feedback.attachments.title")}</Text>
+            {/* attachments_supported 后端实测恒为 false：明说「不收附件」，
+                并把唯一真的收截图/补丁的 issue_tracker 指出来。
+                —— 一个悄悄丢掉 payload 的 success，正是这个插件被造出来去发现的
+                失败模式；藏自己的就太难看了。 */}
+            {!attachmentsSupported ? (
+              <>
+                <Alert tone="warning" message={t("ui.feedback.attachments.unsupported")} />
+                <Text>{t("ui.feedback.attachments.useTracker")}</Text>
+                <Text>{issueTracker}</Text>
+              </>
+            ) : null}
             <Tip>{t("ui.feedback.attachments.why")}</Tip>
 
             {/* 路一：不用注册，直接粘内容（掌柜 2026-09-25 补） */}
             <Text>{t("ui.feedback.attachments.pasteInstead")}</Text>
 
-            {/* 路二：真要传文件本体，才需要 GitHub */}
+            {/* 路二：真要传文件本体，才需要 GitHub（即 issue_tracker） */}
             <Text>{t("ui.feedback.attachments.step1")}</Text>
             <Text>{t("ui.feedback.attachments.step2")}</Text>
             <Text>{t("ui.feedback.attachments.step3")}</Text>
