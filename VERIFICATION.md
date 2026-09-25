@@ -11,7 +11,7 @@
 
 | 层 | 做法 | 能证明什么 | 不能证明什么 |
 |---|---|---|---|
-| 1 | 单元测试 **132 项** | 纯逻辑对 | 装进猫娘里能不能跑 |
+| 1 | 单元测试 **137 项** | 纯逻辑对 | 装进猫娘里能不能跑 |
 | 2 | 官方 `check --release` | 符合发布规范、能打包 | 功能好不好使 |
 | 3 | **真机运行**（内核 + 外壳 + 插件一起拉起来）| 在真实环境里能跑 | 用户看到什么 |
 | 4 | **当面问她**（鼠标键盘操作她的窗口）| 她的意愿 | —— 意愿只能问，测不出来 |
@@ -74,7 +74,7 @@
 ```bash
 # 单元测试
 cd <N.E.K.O> && .venv/Scripts/python.exe -m pytest plugin/plugins/dignity_guard/tests/ -q
-#   → 132 passed
+#   → 137 passed
 
 # 发布级检查（含打包）
 .venv/Scripts/python.exe -m plugin.neko_plugin_cli check plugin/plugins/dignity_guard --release
@@ -83,11 +83,11 @@ cd <N.E.K.O> && .venv/Scripts/python.exe -m pytest plugin/plugins/dignity_guard/
 
 | 项 | 数值 |
 |---|---|
-| 单元测试 | **132 项全绿** |
+| 单元测试 | **137 项全绿** |
 | 发布检查 | passed（含 payload 哈希校验）|
 | 打包 | `dignity_guard.neko-plugin`，官方打包通过；实测 **121.3 KB**（124 249 字节），**不含测试缓存**（见第六节第 7 条）|
-| 界面源码 | `panel.tsx` 845 行 / `onboarding.tsx` 68 行（`wc -l` 口径），均过 Babel 解析 |
-| 多语言 | **196 键 × 3 语言**，键集合一致 |
+| 界面源码 | `panel.tsx` 965 行 / `onboarding.tsx` 67 行（`wc -l` 口径），均过 Babel 解析 |
+| 多语言 | **211 键 × 3 语言**，键集合一致 |
 
 ---
 
@@ -121,6 +121,8 @@ cd <N.E.K.O> && .venv/Scripts/python.exe -m pytest plugin/plugins/dignity_guard/
 | 6 | **本轮又发现的两处「假绿」，已修** | ① `_run_reverts` 的门控写成 `if evaluation.to_revert:`，漏掉了 `revert_blocked` —— 于是「想纠回但基线已丢」那一整轮**什么都不报**；② `_copy_database` 的 `with sqlite3.connect(...)` **只提交事务不关连接**，每次备份泄漏两个句柄。两处都已改（提交 `f1e13f5`）|
 
 | 7 | **限流被当成「发不出去」，已修** | 原来只按状态码分辨：`429` 走「通道忙，稍后再试」，而中转把限流**写在 body 里回 HTTP 200** 的路径永远拿不到那个提示 ——用户明明只是发太快，却被告知发送失败，然后跑去检查网络。改成用显式标志判断，两条路径都能正确归类（提交 `d837217`）|
+| 8 | **按三方独立审查清了一遍（65 条），逐条有状态** | 主审 30 / 二审 27 / 红队 9 合并落盘成 `AUDIT_TODO.md`，**每一条都对着源码重新核对**（不照抄审查结论 —— 那批里有 7 条结论经核对是不成立的）。结果：**P0 5/5、P1 11/11、P2 37 已修（+1 条有意保留并标注）、红队 5 已修（+4 条判为设计如此或不成立）**。 |
+| 9 | **⏳ 其中 4 个旗舰修复的回归测试，正在补** | 独立复检用"把这个改动改回原样，哪个测试会挂"作为判据，发现 4 处**能通过但守不住**：`memory_backup_keep` 的下界、`restore_memory` 的入参归一化、退休 dispute 的顺序、`persisted` 落盘标志。测试补上之前，这四处**改回旧写法不会有人报警**。 |
 
 ---
 
