@@ -1196,7 +1196,7 @@ class DignityGuardPlugin(NekoPluginBase):
         if not target:
             return Err(
                 SdkError(
-                    self._text("errors.pathRequired", default="A path is required."),
+                    self._text("errors.pathRequired", default="A field path is required."),
                     code="invalid_argument",
                 )
             )
@@ -1283,7 +1283,7 @@ class DignityGuardPlugin(NekoPluginBase):
         if not target:
             return Err(
                 SdkError(
-                    self._text("errors.pathRequired", default="A path is required."),
+                    self._text("errors.pathRequired", default="A field path is required."),
                     code="invalid_argument",
                 )
             )
