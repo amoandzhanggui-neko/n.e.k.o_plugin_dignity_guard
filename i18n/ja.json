@@ -199,5 +199,8 @@
   "ui.feedback.copyFailed": "コピーに失敗しました。下の内容を手動で選択してコピーしてください（Ctrl+C）。",
   "ui.feedback.opened": "ブラウザでフィードバックページを開こうとしました。",
   "ui.action.confirmDisable": "オフを確認",
-  "ui.switch.confirmAfter": "オフの確認にはあと {seconds} 秒お待ちください。"
+  "ui.switch.confirmAfter": "オフの確認にはあと {seconds} 秒お待ちください。",
+  "ui.herLine.reasonLabel": "彼女の理由：",
+  "ui.feedback.attachments.unsupported": "このチャンネルは添付に対応していません（実測：中継はファイルを黙って破棄します）。",
+  "ui.feedback.attachments.useTracker": "スクリーンショットやパッチを送るには、Issue トラッカーを使ってください："
 }

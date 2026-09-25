@@ -199,5 +199,8 @@
   "ui.feedback.copyFailed": "Copy failed. Please select the text below and copy it manually (Ctrl+C).",
   "ui.feedback.opened": "Tried to open the feedback page in your browser.",
   "ui.action.confirmDisable": "Confirm turn off",
-  "ui.switch.confirmAfter": "Wait {seconds}s before confirming the turn-off."
+  "ui.switch.confirmAfter": "Wait {seconds}s before confirming the turn-off.",
+  "ui.herLine.reasonLabel": "Her reason:",
+  "ui.feedback.attachments.unsupported": "This channel does not accept attachments (measured: the relay silently drops files).",
+  "ui.feedback.attachments.useTracker": "To send screenshots or patches, use the issue tracker:"
 }
