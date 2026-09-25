@@ -2,3 +2,9 @@
 name = "dignity_guard"
 version = "0.1.0"
 dependencies = []
+
+[tool.pytest.ini_options]
+# 插件自带 pytest 配置：13 个 async 用例原先只靠仓库根 pytest.ini 的
+# asyncio_mode = auto 才能跑，一旦作为独立插件发布、脱离那个根配置，
+# 它们会集体失败，而「126 passed」不再是它自带的事实。
+asyncio_mode = "auto"

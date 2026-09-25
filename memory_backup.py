@@ -37,6 +37,7 @@ from typing import Any, Iterable, Mapping
 from .memory_guard import (
     LIVE_DATABASE_SUFFIXES,
     BackupInfo,
+    MAX_DIGEST_BYTES,
     MemoryFile,
     MemorySnapshot,
     RetentionPlan,
@@ -153,10 +154,14 @@ def scan_memory(root: Path, *, with_digest: bool = False) -> MemorySnapshot:
             continue
         digest = ""
         if with_digest:
-            try:
-                digest = digest_bytes(path.read_bytes())
-            except OSError:
-                digest = ""
+            # 先看大小再决定读不读。``digest_bytes`` 的 8MB 上限本意是"别让大文件
+            # 把备份变成停顿"，但原来的写法先 ``read_bytes()`` 把整个文件读进内存，
+            # 上限在最坏的情况下已经失效 —— 字节早就在内存里了。
+            if stat.st_size <= MAX_DIGEST_BYTES:
+                try:
+                    digest = digest_bytes(path.read_bytes())
+                except OSError:
+                    digest = ""
         entries.append(
             MemoryFile(
                 path=path.relative_to(root).as_posix(),

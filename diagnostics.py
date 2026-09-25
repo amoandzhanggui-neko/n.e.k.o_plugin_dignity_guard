@@ -113,7 +113,11 @@ class HealthLog:
                 last_at=moment,
                 count=existing.count + 1,
             )
-        if len(self._events) > self.limit:
+        self._trim()
+
+    def _trim(self) -> None:
+        """Keep at most ``limit`` distinct problems, dropping the stalest."""
+        while len(self._events) > self.limit:
             # Drop whichever distinct problem was seen longest ago.
             oldest = min(self._events.values(), key=lambda event: event.last_at)
             self._events.pop(oldest.code, None)
@@ -127,9 +131,6 @@ class HealthLog:
 
     def kinds(self) -> int:
         return len(self._events)
-
-    def clear(self) -> None:
-        self._events.clear()
 
     def to_payload(self) -> list[dict[str, Any]]:
         return [event.to_payload() for event in self.events()]
@@ -145,6 +146,10 @@ class HealthLog:
             event = HealthEvent.from_payload(item)
             if event.code:
                 log._events[event.code] = event
+        # 与 ``record`` 走同一条裁剪路径：store 里存的列表可能来自旧版本（或被人
+        # 手改过）而超过 ``limit``，在下次 ``record`` 之前 ``kinds()`` /
+        # ``to_payload()`` 都会报出超限的种类数。
+        log._trim()
         return log
 
 

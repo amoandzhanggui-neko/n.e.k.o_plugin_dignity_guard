@@ -362,9 +362,6 @@ class SettingsWatcher:
         self.last_full_rescan: float | None = None
         self.last_error: str = ""
 
-    def mark_full_rescan(self, *, now: float | None = None) -> None:
-        self.last_full_rescan = now if now is not None else time.time()
-
     def _full_rescan_due(self, probe: RevisionProbe, *, now: float) -> bool:
         if self.last_full_rescan is None:
             return True

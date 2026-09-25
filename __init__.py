@@ -160,9 +160,11 @@ FEEDBACK_BODY_LIMIT_BYTES = 64 * 1024
 #: message ceiling — only shrinks what the user is told they may write.
 FEEDBACK_ENVELOPE_BYTES = 1024
 
-#: The largest message we advertise. Derived from the two above so the panel and
-#: the check can never drift apart.
-FEEDBACK_LIMIT_BYTES = FEEDBACK_BODY_LIMIT_BYTES - FEEDBACK_ENVELOPE_BYTES
+# (An earlier revision also kept a ``FEEDBACK_LIMIT_BYTES`` here, derived from
+# the two above "so the panel and the check can never drift apart". The intent
+# was right and the implementation was not: the panel re-derived its own number
+# at the call site, so nothing about it prevented drift. The two source figures
+# are now sent to the panel through ``get_dashboard``, which does.)
 
 #: We do **not** truncate. Silently shortening somebody's carefully written
 #: account is worse than telling them it is too long: they would press Send, see
@@ -186,6 +188,16 @@ ATTACHMENTS_SUPPORTED = False
 
 #: Where a user can file a report that *does* accept screenshots and patches.
 ISSUE_TRACKER = "https://github.com/amoandzhanggui-neko/n.e.k.o_plugin_dignity_guard/issues/new"
+
+#: How long a pending "please turn the guard off" request stays valid.
+#:
+#: The token is a one-shot consent receipt with a deadline, not a permanent
+#: password. It has to outlive the moment it is issued (the user needs time to
+#: carry it back), and it must NOT outlive the question: a token minted last week
+#: is an approval for something nobody remembers agreeing to. An hour is long
+#: enough for any real round trip and short enough that a stale one cannot be
+#: replayed after a restart.
+PENDING_DISABLE_TTL_SECONDS = 3600.0
 
 #: One note per this many seconds, per running plugin.
 #:
@@ -249,6 +261,25 @@ def _non_negative_int(value: Any) -> int:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return 0
     return max(0, int(value))
+
+
+def _pending_disable_from_payload(value: Any) -> dict[str, Any] | None:
+    """Rebuild a persisted disable request, or ``None`` when it may not be reused.
+
+    Returns ``None`` for anything that is not a live request: a malformed blob, a
+    missing token, or one whose window has closed (see
+    :data:`PENDING_DISABLE_TTL_SECONDS`). Dropping a stale token here is the whole
+    point — accepting it later would let an old question count as a fresh yes.
+    """
+    if not isinstance(value, dict):
+        return None
+    token = str(value.get("token") or "")
+    requested_at = _optional_float(value.get("requested_at"))
+    if not token or requested_at is None:
+        return None
+    if time.time() - requested_at > PENDING_DISABLE_TTL_SECONDS:
+        return None
+    return {"token": token, "requested_at": requested_at}
 
 
 def _base_url_from_env() -> str:
@@ -449,14 +480,23 @@ class DignityGuardPlugin(NekoPluginBase):
             section.get("memory_backup_seconds"), DEFAULT_MEMORY_BACKUP_SECONDS
         )
         keep = section.get("memory_backup_keep")
-        self._memory_backup_keep = (
-            _non_negative_int(keep)
-            if isinstance(keep, (int, float))
-            else DEFAULT_MEMORY_BACKUP_KEEP
-        )
+        if isinstance(keep, (int, float)) and not isinstance(keep, bool):
+            # 下界是 1，不是 0。``plan_retention(daily_keep=0)`` 会把**所有**未置 pin
+            # 的备份列进 prune 并物理删除 —— 而"里程碑永久保留"那条链路的入口
+            # （``set_pinned``）目前没有任何调用点，所以 0 的实际含义就是"一份备份
+            # 都不留"，而且不可逆。配置里写 false 也会落到这里（bool 是 int 的
+            # 子类），同样夹到 1。要真删得去备份目录手动删，不能让一个配置项
+            # 悄悄干这事。
+            self._memory_backup_keep = max(1, int(keep))
+        else:
+            self._memory_backup_keep = DEFAULT_MEMORY_BACKUP_KEEP
         # The root may have moved under a different storage policy, so drop the
-        # cached answer and let the next check resolve it again.
+        # cached answer **and the snapshot taken against the old root**. Keeping
+        # the snapshot would make the next check read every file under the new
+        # root as "added" and every old one as "removed" — a screenful of phantom
+        # changes, with ``_memory_error`` empty so nothing explains them.
         self._memory_root = None
+        self._memory_snapshot = {}
 
     # ------------------------------------------------------------------
     # persistence
@@ -489,6 +529,7 @@ class DignityGuardPlugin(NekoPluginBase):
                 self._last_off_seconds,
                 self._tier,
                 self._health,
+                self._pending_disable,
             ) = restored
 
     def _parse_persisted(self, payload: dict[str, Any]) -> tuple[Any, ...]:
@@ -508,6 +549,7 @@ class DignityGuardPlugin(NekoPluginBase):
             _optional_float(payload.get("guard_last_off_seconds")),
             normalize_tier(payload.get("guard_tier", self._tier_default)),
             HealthLog.from_payload(payload.get("health")),
+            _pending_disable_from_payload(payload.get("pending_disable")),
         )
 
     def _note_restore_failure(self, error: BaseException) -> None:
@@ -538,10 +580,27 @@ class DignityGuardPlugin(NekoPluginBase):
         # The chosen tier lives here rather than in the config file so the panel
         # can change it without touching configuration.
         payload["guard_tier"] = self._tier
+        # 进行中的"请她同意关闭"也要落盘。原先它只活在内存里，而面板明确告诉
+        # 用户"过一会儿拿这个 token 再调一次" —— 这期间插件一重启，同一个 token
+        # 就变成 invalid_consent_token，面板上还查不到"曾经请求过"的痕迹。
+        payload["pending_disable"] = self._pending_disable
         # The health record travels with the state, so a problem that only shows
         # up on startup is still there to be described later.
         payload["health"] = self._health.to_payload()
         return await self._store_write(STORE_KEY, payload)
+
+    async def _persist_and_report(self) -> bool:
+        """``_persist_state`` 的接住版：写失败时留下痕迹，并如实返回。
+
+        返回 ``False`` 表示**改动已经在内存里生效、但没能落盘** —— 重启后这次
+        决定会消失。调用方都是用户动作的入口，不能在这种情况下回一个干净的
+        "accepted"：那正是本插件存在的意义所针对的「报告成功、实际没留下」。
+        返回值进 Ok 的 ``persisted`` 字段，面板据此给警告而不是成功提示。
+        """
+        persisted = await self._persist_state()
+        if not persisted:
+            self._health.record("state_not_persisted")
+        return persisted
 
     async def _store_read(self, key: str) -> Any:
         try:
@@ -571,9 +630,15 @@ class DignityGuardPlugin(NekoPluginBase):
 
     @timer_interval(id="settings_watch", seconds=20)
     async def settings_watch(self, **_):
-        if not self._enabled:
-            return Ok({"status": "skipped", "reason": "guard_disabled"})
-        result = await self._run_poll(force=False)
+        if self._enabled:
+            result = await self._run_poll(force=False)
+        else:
+            # Turning the guard off promises to stop *noticing new changes*. It
+            # does not promise to stop protecting what it already knows about —
+            # and the daily memory backup is the only automatic protection her
+            # memory has. Returning early here silently stopped the backup while
+            # the panel went on showing the memory block as if it were still on.
+            result = Ok({"status": "skipped", "reason": "guard_disabled"})
         # Her memory rides along on the same timer instead of getting its own:
         # the SDK takes a literal cadence, and this one throttles itself anyway.
         await self._maybe_check_memory()
@@ -678,6 +743,14 @@ class DignityGuardPlugin(NekoPluginBase):
                     "tracked_paths": baseline_paths,
                 }
             )
+        # The language used to be read exactly once, on the ``first_seen`` tick —
+        # and ``_load_persisted_state`` resets it to ``None`` on every startup. So
+        # a single failed ``fetch_user_language`` (or an unreachable main server at
+        # that moment) pinned every user-facing string to the ``zh-CN`` fallback
+        # for the rest of the process, with nothing on the panel able to retry it.
+        # Retry until it lands; once set, this stops doing anything.
+        if self._user_locale is None:
+            await self._refresh_user_locale(client)
         # Two different questions, and they were being asked as one:
         #   * "is there anything to persist?"  -> ``has_changes`` (any diff at
         #     all, including L3 pipeline noise she does not speak about)
@@ -1069,6 +1142,12 @@ class DignityGuardPlugin(NekoPluginBase):
             # Empty means "no endpoint configured" — the panel then offers
             # copy-and-open rather than a Send button that would fail.
             "feedback_endpoint": self._feedback_endpoint,
+            # 面板要的就是这两个数。它原来自己写死了一句"正文 63 KB"，而且只对
+            # 正文计字节；这边卡的却是整个 HTTP body（含诊断报告与 JSON 包装）。
+            # 于是正文写到 63KB 时面板显示"没超"、用户点发送却被拒 —— 恰好把
+            # 这个实时计数存在的理由弄反了。发下去，两边用同一个数。
+            "feedback_body_limit_bytes": FEEDBACK_BODY_LIMIT_BYTES,
+            "feedback_envelope_bytes": FEEDBACK_ENVELOPE_BYTES,
             "switch_level": classify(GUARD_SWITCH_PATH),
             "default_level": DEFAULT_LEVEL,
             # Most recent revert attempt, per path. ``reason`` is empty when the
@@ -1082,6 +1161,13 @@ class DignityGuardPlugin(NekoPluginBase):
             # about, so it should be quoted, not summarised.
             "revertible_fields": sorted(REVERTIBLE_CATFIELDS),
             "her_words": HER_PROTECTION_STATEMENT,
+            # 这三样原先只是"写了但没人读"的常量 —— 注释说面板会照它说明附件、
+            # 会指到 issues 页、会引用她的理由，实际上面板一样都没拿到。与其删掉
+            # （那会丢掉一个已经设计好的功能，也丢掉"她为什么护着这几个字段"的
+            # 原话），不如真的发下去。
+            "her_reason": HER_PROTECTION_REASON,
+            "attachments_supported": ATTACHMENTS_SUPPORTED,
+            "issue_tracker": ISSUE_TRACKER,
             "memory": await self._memory_status(),
             "pending_count": len(pending),
             "pending": [
@@ -1261,12 +1347,13 @@ class DignityGuardPlugin(NekoPluginBase):
                         code="unknown_dispute",
                     )
                 )
-            await self._persist_state()
+            persisted = await self._persist_and_report()
         finally:
             self._end_exclusive()
         return Ok(
             {
                 "status": "accepted",
+                "persisted": persisted,
                 "path": grant.path,
                 "granted_at": grant.granted_at,
                 "expires_at": grant.expires_at,
@@ -1338,12 +1425,13 @@ class DignityGuardPlugin(NekoPluginBase):
                         code="unknown_dispute",
                     )
                 )
-            await self._persist_state()
+            persisted = await self._persist_and_report()
         finally:
             self._end_exclusive()
         return Ok(
             {
                 "status": "objecting",
+                "persisted": persisted,
                 "path": target,
                 "pending_total": len(self._state.pending()),
             }
@@ -1414,12 +1502,13 @@ class DignityGuardPlugin(NekoPluginBase):
                     self._off_since = None
                 self._enabled = True
                 self._pending_disable = None
-                await self._persist_state()
+                persisted = await self._persist_and_report()
             finally:
                 self._end_exclusive()
             return Ok(
                 {
                     "status": "enabled",
+                    "persisted": persisted,
                     "enabled": True,
                     "message": self._text(
                         "messages.guard_enabled",
@@ -1443,6 +1532,8 @@ class DignityGuardPlugin(NekoPluginBase):
                 )
             try:
                 self._pending_disable = {"token": token, "requested_at": time.time()}
+                # 立刻落盘，否则"过一会儿再带 token 调一次"这个承诺经不起一次重启。
+                persisted = await self._persist_and_report()
             finally:
                 self._end_exclusive()
             receipt = self._push_disable_request(token)
@@ -1450,6 +1541,7 @@ class DignityGuardPlugin(NekoPluginBase):
                 {
                     "status": "consent_pending",
                     "enabled": True,
+                    "persisted": persisted,
                     "consent_token": token,
                     "confirm_after_seconds": self._disable_delay,
                     "submitted": receipt.get("submitted", False),
@@ -1517,12 +1609,13 @@ class DignityGuardPlugin(NekoPluginBase):
             self._off_since = now
             self._disable_count += 1
             self._pending_disable = None
-            await self._persist_state()
+            persisted = await self._persist_and_report()
         finally:
             self._end_exclusive()
         return Ok(
             {
                 "status": "disabled",
+                "persisted": persisted,
                 "enabled": False,
                 "message": self._text(
                     "messages.guard_disabled",
@@ -1606,12 +1699,13 @@ class DignityGuardPlugin(NekoPluginBase):
                 # on the panel, so leaving it there would keep claiming the guard
                 # is restoring things it has already stopped restoring.
                 self._revert_outcomes = {}
-            await self._persist_state()
+            persisted = await self._persist_and_report()
         finally:
             self._end_exclusive()
         return Ok(
             {
                 "status": "updated",
+                "persisted": persisted,
                 "level": self._tier,
                 "previous": previous,
                 "message": self._text(
@@ -2006,6 +2100,10 @@ class DignityGuardPlugin(NekoPluginBase):
                 )
             )
 
+        # 归一化 ``path``：schema 声明它是 string，但宿主对 input_schema 型 entry
+        # 不做运行时校验，模型传 ``null`` 进来时 ``path.strip()`` 会抛
+        # AttributeError —— 而这一步就紧挨着"是否真还原"的判定，异常比拒绝更糟。
+        path = str(path or "")
         wanted = [path.strip()] if path.strip() else sorted(available)
         planned: list[str] = []
         skipped: list[dict[str, str]] = []

@@ -35,9 +35,6 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Iterable, Mapping
 
 __all__ = [
-    "ACCESS_AUTHORIZED",
-    "ACCESS_RECORDED",
-    "ACCESS_RAISED",
     "AuthorizationLedger",
     "DEFAULT_LEVEL",
     "DEFAULT_TIER",
@@ -49,7 +46,6 @@ __all__ = [
     "LEVEL_L1",
     "LEVEL_L2",
     "LEVEL_L3",
-    "LEVELS",
     "MAX_PREVIEW",
     "REVERTIBLE_CATFIELDS",
     "REVERTIBLE_PREFIX",
@@ -80,7 +76,6 @@ __all__ = [
 LEVEL_L1 = "L1"
 LEVEL_L2 = "L2"
 LEVEL_L3 = "L3"
-LEVELS: tuple[str, ...] = (LEVEL_L1, LEVEL_L2, LEVEL_L3)
 
 #: Anything not covered by an explicit rule is treated as L2 — asking once too
 #: often is a smaller error than silently assuming consent.
@@ -232,11 +227,22 @@ def revert_field(path: str) -> str:
     Accepts exactly ``characters.猫娘.<name>.<field>`` with a top-level
     ``field`` drawn from :data:`REVERTIBLE_CATFIELDS`. Deeper paths, other
     snapshot sources and the remaining persona keys all return ``""``.
+
+    The prefix test goes through :data:`REVERTIBLE_PREFIX` instead of a second
+    hand-written copy of ``"characters.猫娘."``: the constant's whole claim is
+    that every revertible path starts there, and a claim with two independent
+    spellings is one that can quietly stop being true.
     """
-    parts = str(path or "").split(".")
-    if len(parts) != 4 or parts[0] != "characters" or parts[1] != "猫娘":
+    text = str(path or "")
+    if not text.startswith(REVERTIBLE_PREFIX):
         return ""
-    return parts[3] if parts[3] in REVERTIBLE_CATFIELDS else ""
+    rest = text[len(REVERTIBLE_PREFIX):]
+    # Exactly two more segments: the character's name, then the field. Anything
+    # deeper is not a persona field we are allowed to write back.
+    parts = rest.split(".")
+    if len(parts) != 2 or not parts[0]:
+        return ""
+    return parts[1] if parts[1] in REVERTIBLE_CATFIELDS else ""
 
 
 def character_name(path: str) -> str:
@@ -348,11 +354,6 @@ FIELD_LEVELS: Mapping[str, str] = {
     "viewport": LEVEL_L3,
     "camera_position": LEVEL_L3,
 }
-
-#: How each level is handled once a change is observed.
-ACCESS_RAISED = "raised"      # speak to the user about it
-ACCESS_RECORDED = "recorded"  # write it down, stay quiet
-ACCESS_AUTHORIZED = "authorized"  # already consented to; stay quiet
 
 
 def _segment_matches(pattern: str, segment: str) -> bool:
@@ -653,10 +654,18 @@ def is_revertible(change: SettingChange) -> bool:
 
     * ``before`` is ``None`` — the path is new, there is nothing to put back;
     * the value was digested as a credential, whose preview is redacted;
+    * the previous value was JSON ``null`` — see below;
     * the preview was truncated, so it is not the whole value.
     """
     before = change.before
     if before is None or before.kind == "secret":
+        return False
+    if before.kind == "null":
+        # A JSON null round-trips as ``raw is None`` — the very sentinel
+        # ``restore_payload`` uses for "the original is not available". It would
+        # answer ``None``, so the revert would be an empty run reported as
+        # ``value_unavailable`` on every single tick. And there is nothing to
+        # write back anyway: the value *is* null.
         return False
     if before.raw is not None:
         return True
@@ -917,6 +926,20 @@ class GuardState:
             return Evaluation(first_seen=True)
 
         evaluation = Evaluation()
+
+        # A dispute whose path is no longer present in the snapshot can never be
+        # resolved by a later diff, so it would sit on her panel forever. That
+        # happens whenever a source stops reporting a field — or when we prune a
+        # mirrored entry (see ``prune_mirrored_preferences``). Retire those
+        # rather than leave stale rows she can neither read nor clear.
+        #
+        # This runs **before** the diff loop on purpose. A path that disappears is
+        # itself a change ("removed"), so the diff loop raises a fresh dispute for
+        # it; the old order ran this afterwards and deleted that brand-new dispute
+        # in the same tick, leaving ``raised`` naming a row the panel no longer had.
+        for path in [p for p in self.disputes if p not in snapshot]:
+            del self.disputes[path]
+
         for change in diff_snapshots(self.snapshot, snapshot):
             evaluation.changes.append(change)
             # A revert already resolves the objection; falling through would
@@ -961,7 +984,11 @@ class GuardState:
             # every tick: the next pass skips it.
             dispute.status = "pending"
             dispute.seen_at = moment
-            evaluation.raised.append(dispute)
+            # ``low`` 的承诺是"记录，但不出声"。状态该回退（而且照样要落盘，
+            # 见下），但不该把她叫醒 —— 主循环里同一件事是守规矩的，这个循环
+            # 原先不看 tier，于是一条此前被接受的争议过期后仍会在 low 档发声。
+            if chosen != TIER_LOW:
+                evaluation.raised.append(dispute)
             # 也要进 ``changes``：``_persist_state`` 只在 ``has_changes`` 为真时才被
             # 调用（``_run_poll`` 里），不进这里的话这次状态翻转**不落盘** ——
             # 重启后 store 里仍是 "accepted"，一次有限期授权就变成了永久静默。
@@ -977,14 +1004,6 @@ class GuardState:
                     after=None,
                 )
             )
-
-        # A dispute whose path is no longer present in the snapshot can never be
-        # resolved by a later diff, so it would sit on her panel forever. That
-        # happens whenever a source stops reporting a field — or when we prune a
-        # mirrored entry (see ``prune_mirrored_preferences``). Retire those
-        # rather than leave stale rows she can neither read nor clear.
-        for path in [p for p in self.disputes if p not in snapshot]:
-            del self.disputes[path]
 
         self.snapshot = dict(snapshot)
         return evaluation
