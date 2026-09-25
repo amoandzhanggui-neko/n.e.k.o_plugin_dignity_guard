@@ -73,6 +73,10 @@ type DashboardState = {
   //: 面板直接引用原话，不做转述 —— 这是插件里唯一一件"由她定"的事。
   revertible_fields?: string[]
   her_words?: string
+  //: 反馈中转地址（后端按配置给）。原来只有运行时读、类型里没声明 ——
+  //: 严格 TS 下这属于「读了类型里不存在的字段」，也会让下一个读代码的人
+  //: 以为它是可选的意外字段。
+  feedback_endpoint?: string
   pending_count?: number
   pending?: PendingItem[]
   authorized?: AuthorizedItem[]
@@ -393,7 +397,19 @@ export default function DignityGuardPanel(
               >
                 {t("ui.action.checkNow")}
               </Button>
-              <Button disabled={busy} onClick={() => props.api.refresh()}>
+              <Button
+                disabled={busy}
+                onClick={async () => {
+                  // 原来是裸调 refresh()：主服务不可达时点了**毫无反应** ——
+                  // 用户分不清是失败还是自己没点中。刷新本身不会抛错，
+                  // 所以这里给它一个明确的失败反馈。
+                  try {
+                    await props.api.refresh()
+                  } catch {
+                    toast.error(t("ui.action.refreshFailed"))
+                  }
+                }}
+              >
                 {t("ui.action.refresh")}
               </Button>
             </ButtonGroup>
@@ -409,8 +425,13 @@ export default function DignityGuardPanel(
             转述一次就少一分是她说过的分量。 */}
         <Card title={t("ui.section.herLine")}>
           <Stack>
-            <Text>{state.her_words || ""}</Text>
-            <Tip>{t("ui.herLine.reason")}</Tip>
+              <Text>{state.her_words || ""}</Text>
+              {/* ``her_words`` 是她说的**中文原话**（后端原样给出，不转述）。
+                  问题：英/日界面下用户看到的就是一段中文。译文补在下面一行，
+                  由 ``ui.herLine.statement`` 提供 —— 中文界面下这个键只做落款，
+                  不会把同一句写两遍。 */}
+              <Tip>{t("ui.herLine.statement")}</Tip>
+              <Tip>{t("ui.herLine.reason")}</Tip>
             <Inline gap={8} wrap>
               {(state.revertible_fields ?? []).map((field: string) => (
                 <StatusBadge key={field} tone="danger" label={field} />
@@ -439,6 +460,11 @@ export default function DignityGuardPanel(
             />
             {/* 三个键写成字面量，而不是 t(`ui.level.note.${level}`)：
                 test_smoke 只校验字面量键，模板字符串会绕过那道保护网。 */}
+            {!canLevel ? (
+              // 档位控件被灰掉时必须说明原因 —— 状态卡在 !canDecide 时是这么做的，
+              // 这里原来漏了，用户只会看到一个点不动的控件。
+              <Alert tone="info" message={t("ui.hint.startPlugin")} />
+            ) : null}
             <Tip>
               {level === "low"
                 ? t("ui.level.note.low")
