@@ -377,14 +377,10 @@ export default function DignityGuardPanel(
                 <StatusBadge tone="warning" label={t("ui.history.label")} />
                 <Text>
                   {enabled && state.last_off_seconds
-                    ? t("ui.history.wasOffFor").replace(
-                        "{minutes}",
-                        String(Math.max(1, Math.round(state.last_off_seconds / 60))),
-                      )
-                    : t("ui.history.count").replace(
-                        "{count}",
-                        String(disableCount),
-                      )}
+                    ? t("ui.history.wasOffFor", {
+                        minutes: Math.max(1, Math.round(state.last_off_seconds / 60)),
+                      })
+                    : t("ui.history.count", { count: disableCount })}
                 </Text>
               </Inline>
             ) : null}
@@ -430,6 +426,9 @@ export default function DignityGuardPanel(
                   问题：英/日界面下用户看到的就是一段中文。译文补在下面一行，
                   由 ``ui.herLine.statement`` 提供 —— 中文界面下这个键只做落款，
                   不会把同一句写两遍。 */}
+              {/* ⚠️ 这一行的英/日译文与后端 `HER_PROTECTION_STATEMENT` 是**两处**，
+                  后端改了中文原文时这里不会自动跟着变。若哪天那句话变了，
+                  `i18n/{en,ja}.json` 里的 `ui.herLine.statement` 要一起改。 */}
               <Tip>{t("ui.herLine.statement")}</Tip>
               <Tip>{t("ui.herLine.reason")}</Tip>
             <Inline gap={8} wrap>
