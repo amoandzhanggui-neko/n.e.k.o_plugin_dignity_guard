@@ -21,6 +21,7 @@ import {
   useClipboard,
   useToast,
   useState,
+  useEffect,
 } from "@neko/plugin-ui"
 import type { HostedAction, PluginSurfaceProps } from "@neko/plugin-ui"
 
@@ -146,6 +147,11 @@ export default function DignityGuardPanel(
   const [busy, setBusy] = useState(false)
   const toast = useToast()
 
+  // 两阶段关闭需要的本地状态：consent_token 来自第一阶段返回，
+  // nowMs 用于驱动倒计时刷新（每秒更新一次）。
+  const [disableToken, setDisableToken] = useState<string | null>(null)
+  const [nowMs, setNowMs] = useState(() => Date.now())
+
   // ★ 反馈入口（掌柜 2026-09-24 明确定调）
   //   面板上**要有**：用户更习惯插件里有个能提意见的地方，
   //   而不是"得先跟猫娘说一声"。
@@ -185,7 +191,7 @@ export default function DignityGuardPanel(
    *    这是明确不允许的。
    *
    * 版本从 state 里取、不写死：写死会在升版本时悄悄说错话，而报告里的
-   * 版本号正是判断"这个问题修没修"的依据。
+   *    版本号正是判断"这个问题修没修"的依据。
    */
   function buildFeedbackBody(): string {
     const env = [
@@ -206,8 +212,14 @@ export default function DignityGuardPanel(
       toast.error(t("ui.feedback.needText"))
       return
     }
-    const ok = await clipboard.write(buildFeedbackBody())
-    if (ok) toast.success(t("ui.feedback.copied"))
+    const body = buildFeedbackBody()
+    const ok = await clipboard.write(body)
+    if (ok) {
+      toast.success(t("ui.feedback.copied"))
+    } else {
+      // 复制失败：把内容摊在提示里，让用户手动选中复制（Ctrl+C）。
+      toast.error(`${t("ui.feedback.copyFailed")}\n\n${body}`)
+    }
   }
 
   async function sendFeedback() {
@@ -262,14 +274,53 @@ export default function DignityGuardPanel(
     // ``HostedSurfaceFrame`` 收到后交给 ``shell.openExternal``，由系统浏览器打开。
     // SDK 的 ``FileDownload`` 内部用的就是同一条路。原来的注释说"插件 UI 没有
     // 官方打开外部链接的 API" —— 那句话是错的。
+    //
+    // 因此这里**不**用返回值判断成败（window.open 永远返回 null），而是走
+    // 官方 postMessage 通道；能打开就给个中性提示，真被拦下（抛异常）再报错。
     try {
       parent.postMessage(
         { type: "neko-hosted-surface-open-external", payload: { url: FALLBACK_URL } },
         hostedTargetOrigin(),
       )
+      // postMessage 不抛异常就当作已送达，给个中性提示；真正失败（被拦）会进 catch。
+      toast.success(t("ui.feedback.opened"))
     } catch {
       toast.error(`${t("ui.feedback.openFailed")} ${FALLBACK_URL}`)
     }
+  }
+
+  // 第一阶段：申请关闭。后端返回 consent_token（也写进 dashboard 状态），
+  // 刷新后进入 consent_pending，面板开始倒计时。不在这里用 call() 的成功提示，
+  // 因为此时还没真正关闭。
+  async function requestDisable() {
+    setBusy(true)
+    try {
+      const envelope = await props.api.call("set_guard_enabled", { enabled: false })
+      const response =
+        envelope && typeof envelope === "object" && (envelope as Record<string, unknown>).result && typeof (envelope as Record<string, unknown>).result === "object"
+          ? (envelope as Record<string, unknown>).result as Record<string, unknown>
+          : (envelope as Record<string, unknown>)
+      await props.api.refresh()
+      if (response && typeof response === "object" && typeof response.consent_token === "string") {
+        setDisableToken(response.consent_token)
+      }
+      toast.success(t("ui.toast.disableRequested"))
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // 第二阶段：带口令确认关闭。冷却未到时按钮是 disabled 的，这里再守一道。
+  async function confirmDisable() {
+    if (!disableToken) return
+    const sent = await call(
+      "set_guard_enabled",
+      { enabled: false, consent_token: disableToken },
+      t("messages.guard_disabled"),
+    )
+    if (sent) setDisableToken(null)
   }
 
   function hasAction(id: string): boolean {
@@ -305,6 +356,10 @@ export default function DignityGuardPanel(
   // 于是 sendFeedback 无条件清空输入框、关掉弹窗 —— 用户手写的一大段
   // 反馈在发送失败时被抹掉，而 Python 侧特意做的「不截断、说清原因、
   // 不丢内容」全白费。失败必须让调用方知道。
+  //
+  // props.api.call 返回的是 `{ result: {...} }` 信封（宿主面），这里解出
+  // result 看 persisted 标志：后端明确说"没落盘"时，用警告/错误 toast 提示，
+  // 而不是假装成功。
   async function call(
     id: string,
     args: Record<string, unknown>,
@@ -312,9 +367,17 @@ export default function DignityGuardPanel(
   ): Promise<boolean> {
     setBusy(true)
     try {
-      await props.api.call(id, args)
+      const envelope = await props.api.call(id, args)
+      const response =
+        envelope && typeof envelope === "object" && (envelope as Record<string, unknown>).result && typeof (envelope as Record<string, unknown>).result === "object"
+          ? (envelope as Record<string, unknown>).result as Record<string, unknown>
+          : (envelope as Record<string, unknown>)
       await props.api.refresh()
-      toast.success(done)
+      if (response && typeof response === "object" && response.persisted === false) {
+        toast.error(t("ui.warning.notPersisted"))
+      } else {
+        toast.success(done)
+      }
       return true
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error))
@@ -332,6 +395,16 @@ export default function DignityGuardPanel(
   const canBackupMemory = hasAction("backup_memory_now")
   const memory = state.memory ?? {}
   const memoryChanges = memory.recent_changes ?? []
+  const disableReadyAt = state.disable_ready_at ?? null
+  const disableReady = disableReadyAt == null || nowMs / 1000 >= disableReadyAt
+  const disableSeconds = disableReadyAt == null ? 0 : Math.max(0, Math.ceil(disableReadyAt - nowMs / 1000))
+
+  // 两阶段关闭：进入等待期后，每秒刷新 nowMs 以驱动「请等待 N 秒」倒计时。
+  useEffect(() => {
+    if (!pendingDisable) return
+    const timer = setInterval(() => setNowMs(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [pendingDisable])
 
   return (
     <Page title={t("panel.title")} subtitle={t("ui.subtitle")}>
@@ -695,18 +768,24 @@ export default function DignityGuardPanel(
                 {t("ui.action.turnOn")}
               </Button>
             ) : pendingDisable ? (
-              <Alert tone="warning" message={t("ui.switch.pending")} />
+              <Stack gap={6}>
+                <Alert tone="warning" message={t("ui.switch.pending")} />
+                <Text>{t("ui.switch.confirmAfter", { seconds: disableSeconds })}</Text>
+                {disableToken ? (
+                  <Button tone="danger" disabled={busy || !canToggle || !disableReady} onClick={confirmDisable}>
+                    {t("ui.action.confirmDisable")}
+                  </Button>
+                ) : (
+                  <Button tone="danger" disabled={busy || !canToggle} onClick={requestDisable}>
+                    {t("ui.action.requestDisable")}
+                  </Button>
+                )}
+              </Stack>
             ) : (
               <Button
                 tone="danger"
                 disabled={busy || !canToggle}
-                onClick={() =>
-                  call(
-                    "set_guard_enabled",
-                    { enabled: false },
-                    t("ui.toast.disableRequested"),
-                  )
-                }
+                onClick={requestDisable}
               >
                 {t("ui.action.requestDisable")}
               </Button>

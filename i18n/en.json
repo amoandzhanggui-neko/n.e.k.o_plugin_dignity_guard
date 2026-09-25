@@ -194,5 +194,10 @@
   "ui.feedback.attachments.step3": "3. Press Copy the diagnostics, paste them into the body, and submit",
   "ui.feedback.attachments.copy": "Copy the diagnostics",
   "ui.feedback.attachments.open": "Open the submission page",
-  "ui.feedback.attachments.pasteInstead": "Long text? Paste it straight into the box above and press Send — one every dozen seconds or so, and no sign-up needed."
+  "ui.feedback.attachments.pasteInstead": "Long text? Paste it straight into the box above and press Send — one every dozen seconds or so, and no sign-up needed.",
+  "ui.warning.notPersisted": "The change took effect, but could not be written to local storage — it will be lost when the plugin restarts.",
+  "ui.feedback.copyFailed": "Copy failed. Please select the text below and copy it manually (Ctrl+C).",
+  "ui.feedback.opened": "Tried to open the feedback page in your browser.",
+  "ui.action.confirmDisable": "Confirm turn off",
+  "ui.switch.confirmAfter": "Wait {seconds}s before confirming the turn-off."
 }

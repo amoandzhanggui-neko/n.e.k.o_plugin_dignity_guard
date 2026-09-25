@@ -194,5 +194,10 @@
   "ui.feedback.attachments.step3": "3. 点「复制诊断信息」，粘到正文里，然后提交",
   "ui.feedback.attachments.copy": "复制诊断信息",
   "ui.feedback.attachments.open": "打开 GitHub 提交页",
-  "ui.feedback.attachments.pasteInstead": "文字太长的话，直接粘进上面的输入框，按「发送」就行 —— 十几秒能发一次，不用注册。"
+  "ui.feedback.attachments.pasteInstead": "文字太长的话，直接粘进上面的输入框，按「发送」就行 —— 十几秒能发一次，不用注册。",
+  "ui.warning.notPersisted": "改动已经生效，但没能写入本地存储 —— 插件重启后这次决定会丢失。",
+  "ui.feedback.copyFailed": "复制失败，请手动选中下面的内容复制（Ctrl+C）。",
+  "ui.feedback.opened": "已尝试在浏览器中打开反馈页。",
+  "ui.action.confirmDisable": "确认关闭",
+  "ui.switch.confirmAfter": "请等待 {seconds} 秒后再确认关闭。"
 }

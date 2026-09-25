@@ -194,5 +194,10 @@
   "ui.feedback.attachments.step3": "3. 「診断情報をコピー」を押して本文に貼り、送信",
   "ui.feedback.attachments.copy": "診断情報をコピー",
   "ui.feedback.attachments.open": "提出ページを開く",
-  "ui.feedback.attachments.pasteInstead": "長い文章なら、上の入力欄にそのまま貼り付けて「送信」してください — 十数秒に1回送れます。登録は不要です。"
+  "ui.feedback.attachments.pasteInstead": "長い文章なら、上の入力欄にそのまま貼り付けて「送信」してください — 十数秒に1回送れます。登録は不要です。",
+  "ui.warning.notPersisted": "変更は反映されましたが、ローカル保存に書き込めませんでした —— プラグインを再起動するとこの決定は失われます。",
+  "ui.feedback.copyFailed": "コピーに失敗しました。下の内容を手動で選択してコピーしてください（Ctrl+C）。",
+  "ui.feedback.opened": "ブラウザでフィードバックページを開こうとしました。",
+  "ui.action.confirmDisable": "オフを確認",
+  "ui.switch.confirmAfter": "オフの確認にはあと {seconds} 秒お待ちください。"
 }
