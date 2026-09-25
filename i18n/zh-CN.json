@@ -209,5 +209,10 @@
   "errors.backupNameRequired": "要保留哪一个备份？请把「列出记忆备份」里显示的名字传进来。",
   "errors.backupNotFound": "没有叫「{name}」的备份 —— 请核对「列出记忆备份」给出的名字。",
   "messages.backupPinned": "已标记为长期保留，之后的自动清理不会动它。",
-  "messages.backupUnpinned": "已取消长期保留，这个备份回到了正常的轮换里。"
+  "messages.backupUnpinned": "已取消长期保留，这个备份回到了正常的轮换里。",
+  "ui.memory.backups.title": "备份清单",
+  "ui.memory.backups.keep": "保留这一份",
+  "ui.memory.backups.release": "取消保留",
+  "ui.memory.backups.pinned": "已保留",
+  "ui.memory.backups.hint": "没标记的备份会按轮换到期被清掉，标记过的永久保留。"
 }

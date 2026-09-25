@@ -209,5 +209,10 @@
   "errors.backupNameRequired": "どのバックアップですか？「メモリバックアップ一覧」に表示された名前を渡してください。",
   "errors.backupNotFound": "「{name}」という名前のバックアップはありません —— 「メモリバックアップ一覧」の名前を確認してください。",
   "messages.backupPinned": "長期保持としてマークしました。以後の自動整理では削除されません。",
-  "messages.backupUnpinned": "保持を解除しました。このバックアップは通常のローテーションに戻ります。"
+  "messages.backupUnpinned": "保持を解除しました。このバックアップは通常のローテーションに戻ります。",
+  "ui.memory.backups.title": "バックアップ一覧",
+  "ui.memory.backups.keep": "このまま残す",
+  "ui.memory.backups.release": "保持を解除",
+  "ui.memory.backups.pinned": "保持中",
+  "ui.memory.backups.hint": "マーカーのないバックアップはローテーションで消され、ピン留めしたものは永久に残ります。"
 }

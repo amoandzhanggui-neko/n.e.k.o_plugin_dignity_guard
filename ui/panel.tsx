@@ -58,6 +58,10 @@ type MemoryState = {
   last_backup_at?: number | null
   backup_count?: number
   backup_keep?: number
+  //: 记忆备份清单（get_dashboard 现在下发）。每项含名字、创建时间、是否已「保留」。
+  //: 后端 set_pinned / list_backups 的 pinned 分支早就在，但此前从没人写它，
+  //: 所以「里程碑永久保留」整条承诺不可达；现在 pin_backup entry 才接上。
+  backups?: { name: string; created_at: number; pinned: boolean }[]
   recent_changes?: MemoryChangeItem[]
   error?: string
 }
@@ -413,14 +417,28 @@ export default function DignityGuardPanel(
     }
   }
 
+  // 保留 / 取消保留某份记忆备份。call() 内部会 refresh()（重拉 dashboard，
+  // pinned 立刻反映），出错时直接把后端 message toast 出来（backup_not_found
+  // 的文案里带上了名字，比我们自己另写一句更有用）。成功提示复用已有的
+  // messages.backupPinned / messages.backupUnpinned。
+  async function pinBackup(name: string, pinned: boolean) {
+    await call(
+      "pin_backup",
+      { backup: name, pinned },
+      pinned ? t("messages.backupPinned") : t("messages.backupUnpinned"),
+    )
+  }
+
   const canCheck = hasAction("check_now") && enabled
   const canDecide = hasAction("accept_setting") && hasAction("keep_objecting")
   const canToggle = hasAction("set_guard_enabled")
   const canLevel = hasAction("set_guard_level")
   const level = state.guard_level || "medium"
   const canBackupMemory = hasAction("backup_memory_now")
+  const canPin = hasAction("pin_backup")
   const memory = state.memory ?? {}
   const memoryChanges = memory.recent_changes ?? []
+  const backups = memory.backups ?? []
   const disableReadyAt = state.disable_ready_at ?? null
   const disableReady = disableReadyAt == null || nowMs / 1000 >= disableReadyAt
   const disableSeconds = disableReadyAt == null ? 0 : Math.max(0, Math.ceil(disableReadyAt - nowMs / 1000))
@@ -661,6 +679,39 @@ export default function DignityGuardPanel(
                 />
               </Stack>
             )}
+
+            {/* 备份清单：列出每一份记忆备份，给出「保留 / 取消保留」。
+                没标记的会按轮换到期被清掉，标记过（pinned）的永久保留。
+                后端 set_pinned / list_backups 的 pinned 分支早就在，但此前没人写它，
+                所以「里程碑永久保留」整条承诺不可达 —— 现在 pin_backup entry 才接上。 */}
+            {backups.length > 0 ? (
+              <Stack gap={8}>
+                <Text>{t("ui.memory.backups.title")}</Text>
+                <List
+                  items={backups}
+                  render={(b: { name: string; created_at: number; pinned: boolean }) => (
+                    <Inline align="center" justify="space-between" key={b.name}>
+                      <Stack gap={2}>
+                        <Inline align="center" gap={6}>
+                          <Text>{b.name}</Text>
+                          {b.pinned ? (
+                            <StatusBadge tone="info" label={t("ui.memory.backups.pinned")} />
+                          ) : null}
+                        </Inline>
+                        <Text>{formatTime(b.created_at, t("ui.never"))}</Text>
+                      </Stack>
+                      <Button
+                        disabled={busy || !canPin}
+                        onClick={() => pinBackup(b.name, !b.pinned)}
+                      >
+                        {b.pinned ? t("ui.memory.backups.release") : t("ui.memory.backups.keep")}
+                      </Button>
+                    </Inline>
+                  )}
+                />
+                <Tip>{t("ui.memory.backups.hint")}</Tip>
+              </Stack>
+            ) : null}
 
             <Inline justify="end">
               <Button
