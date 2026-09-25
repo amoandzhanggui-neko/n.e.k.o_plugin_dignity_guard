@@ -1057,6 +1057,16 @@ class DignityGuardPlugin(NekoPluginBase):
             "last_backup_at": self._last_memory_backup_at,
             "backup_count": len(backups),
             "backup_keep": self._memory_backup_keep,
+            # The names, not just the count: ``pin_backup`` takes one, so a panel
+            # that only knows "3 backups" cannot offer a "keep this one" button
+            # at all. ``pinned`` travels too — otherwise the panel cannot tell
+            # which ones are already safe from the rotation.
+            "backups": [
+                {"name": item.name, "created_at": item.created_at, "pinned": item.pinned}
+                for item in sorted(
+                    backups, key=lambda b: (b.created_at, b.name), reverse=True
+                )
+            ],
             "recent_changes": [
                 change.to_payload() for change in self._memory_changes[:10]
             ],
