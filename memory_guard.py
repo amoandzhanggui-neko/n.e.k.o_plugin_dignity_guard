@@ -99,6 +99,14 @@ class MemoryFile:
     digest: str = ""
 
     def to_payload(self) -> dict[str, Any]:
+        """Render as plain JSON-ready data, symmetric with :meth:`from_payload`.
+
+        Nothing on the production path calls this pair yet: a memory snapshot
+        lives in memory for the lifetime of the check and is never written down
+        (see the module docstring). They exist so that a snapshot which *does*
+        need to cross a process or disk boundary has one obvious, tested way to
+        do it, instead of each caller inventing its own field names.
+        """
         return {"path": self.path, "size": self.size, "mtime": self.mtime, "digest": self.digest}
 
     @classmethod

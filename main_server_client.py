@@ -224,6 +224,12 @@ class MainServerClient:
 
         ``previous`` is the snapshot the caller already holds. It is used only
         for sources this cycle could not read — see :meth:`fetch_others`.
+
+        ``SettingsWatcher.poll`` inlines this same sequence on the forced-rescan
+        path rather than calling it, so there is no production call site today.
+        It is kept as the composed, readable form of "read everything at once":
+        the thing a new caller (or a test) should reach for, instead of
+        reassembling the three steps in the right order by hand.
         """
         _probe, conversation = await self.fetch_conversation()
         payloads = await self.fetch_others()

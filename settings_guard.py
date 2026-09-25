@@ -327,6 +327,14 @@ SENSITIVITY_RULES: tuple[tuple[str, str], ...] = (
     # and ten siblings). ``position.x`` reads like 1820.3297010767687, so merely
     # dragging her window changes the digest — that is plumbing, and it is L3.
     # Whether she may speak up unprompted is not plumbing.
+    #
+    # This rule is a compatibility net rather than the one that fires in practice:
+    # ``prune_mirrored_preferences`` drops the ``__global_conversation__`` entry
+    # that carries these flags (it mirrors ``conversation.settings``, which has its
+    # own L1 rules), so the path rarely survives into a snapshot. It stays because
+    # "may she speak unprompted" is autonomy wherever it is found, and an L1 rule
+    # that never fires costs nothing — whereas a missing one would quietly demote
+    # the question to L3 plumbing.
     ("preferences.*.proactive*", LEVEL_L1),
     ("preferences.*.model_path", LEVEL_L2),
     # Everything else in this list is display/audio plumbing; record it quietly.

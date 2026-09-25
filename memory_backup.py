@@ -141,6 +141,13 @@ def scan_memory(root: Path, *, with_digest: bool = False) -> MemorySnapshot:
     and hashing a megabyte every tick would cost real CPU on a modest machine
     for no benefit. Size and mtime are enough to notice a change; the digest is
     only worth computing when we are already reading the bytes for a backup.
+
+    Note that **no caller passes ``with_digest=True`` today**: the backup path
+    compares by size and mtime, and the digest branch of ``_looks_changed`` only
+    fires when both sides carry one. The flag, ``MemoryFile.digest`` and
+    ``MAX_DIGEST_BYTES`` are kept as one connected unit on purpose — a re-scan
+    that has already read the bytes should be able to compare exactly rather
+    than by proxy — and the tests exercise that path directly.
     """
     entries: list[MemoryFile] = []
     for path in sorted(Path(root).rglob("*")):
@@ -268,8 +275,17 @@ def list_backups(backup_root: Path) -> list[BackupInfo]:
 
 
 def set_pinned(backup_root: Path, name: str, *, pinned: bool = True) -> bool:
-    """Mark a backup as a milestone (kept forever), or clear the mark."""
-    marker = Path(backup_root) / name / PINNED_MARKER
+    """Mark a backup as a milestone (kept forever), or clear the mark.
+
+    Refuses a name that is not already a backup directory: the marker's parent is
+    created on the way in, so without this check a typo would manufacture an empty
+    "backup" that is then kept forever. Failing is the honest answer; the caller
+    reports it.
+    """
+    target = Path(backup_root) / str(name or "")
+    if not name or not target.is_dir():
+        return False
+    marker = target / PINNED_MARKER
     try:
         if pinned:
             marker.parent.mkdir(parents=True, exist_ok=True)
