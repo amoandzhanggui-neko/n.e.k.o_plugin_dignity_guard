@@ -19,6 +19,7 @@ import pytest
 
 from plugin.sdk.plugin import Err, Ok
 from plugin.plugins.dignity_guard import DignityGuardPlugin
+from plugin.plugins.dignity_guard.settings_guard import GuardState, Value
 
 _PLUGIN_DIR = Path(__file__).resolve().parents[1]
 
@@ -394,3 +395,117 @@ def test_dashboard_opens_when_the_main_server_is_unreachable(sandbox) -> None:
     assert result["before"]["last_error"] == ""
     assert isinstance(result["failed"], Err)
     assert result["after"]["last_error"]
+
+
+# ---------------------------------------------------------------------------
+# 回归测试 —— 这四条是「把这个修复改回原样，没有任何测试会挂」的那种洞。
+# 每条注释都写清：它守的是什么、怎么改回去会让它挂。
+# ---------------------------------------------------------------------------
+
+
+def test_a_zero_backup_keep_still_keeps_one(sandbox) -> None:
+    """``memory_backup_keep = 0`` 不能变成「删光所有备份」。
+
+    ``plan_retention(daily_keep=0)`` 会把**每一份**未置 pin 的备份放进 prune 列表，
+    而 ``prune_backups`` 是真删。配置值原样传到那里，所以 ``0`` —— 以及 ``false``
+    （``bool`` 是 ``int`` 的子类）—— 静默地等于「一份都不留」，且不可逆。
+    下界住在 ``_reload_config``，所以只测 ``plan_retention`` 是**守不住**这条的。
+    """
+    for configured in (0, False):
+        ctx = _Ctx(base_url="http://127.0.0.1:1")
+        # 直接改 `dignity_guard` 段。`_Ctx(config=...)` 是把键合并到**顶层**的
+        # （`__init__` 里的 `**(config or {})`），所以写成
+        # `config={"memory_backup_keep": 0}` 会静默落在段落之外、配置根本不生效
+        # —— 那样这条测试就恒过，正是它要防的那类"假绿"。
+        ctx._config["dignity_guard"]["memory_backup_keep"] = configured
+        plugin = DignityGuardPlugin(ctx)
+        asyncio.run(plugin.on_startup())
+        try:
+            assert plugin._memory_backup_keep >= 1, (
+                "memory_backup_keep=%r 变成了 %r —— 那会把所有未置 pin 的备份删光"
+                % (configured, plugin._memory_backup_keep)
+            )
+        finally:
+            asyncio.run(plugin.on_shutdown())
+
+
+def test_a_null_dry_run_still_only_plans(sandbox, monkeypatch) -> None:
+    """``dry_run=None`` 必须留在安全的一侧：只出计划，不真还原。
+
+    schema 声明它是 boolean，但宿主对 input_schema 型 entry **不做运行时校验** ——
+    而这一位是「列一份计划」与「覆盖用户活文件」的分界。``None``（省略该键时以
+    null 到达）曾经是假值，也就是「真还原」。
+    """
+    ctx = _Ctx(base_url="http://127.0.0.1:1")
+    plugin = DignityGuardPlugin(ctx)
+    asyncio.run(plugin.on_startup())
+    try:
+        root = sandbox / "memory"
+        root.mkdir(parents=True, exist_ok=True)
+        live = root / "facts.json"
+        live.write_text('{"live": true}', encoding="utf-8")
+
+        # 造一份可以「恢复自」的备份：备份根下一个目录，里面放同名相对路径。
+        backup_root = sandbox / "backups"
+        snapshot = backup_root / "2026-09-25-120000"
+        snapshot.mkdir(parents=True, exist_ok=True)
+        (snapshot / "facts.json").write_text('{"live": false}', encoding="utf-8")
+
+        monkeypatch.setattr(plugin, "_resolve_memory_root", lambda: root)
+        monkeypatch.setattr(plugin, "_memory_backup_root", lambda: backup_root)
+
+        result = asyncio.run(plugin.restore_memory(dry_run=None))
+        assert isinstance(result, Ok), result
+        assert result.value["dry_run"] is True
+        assert result.value["status"] == "planned"
+        # 这条才是重点：所谓 dry-run，就是活文件一个字节都不许动。
+        assert live.read_text(encoding="utf-8") == '{"live": true}', (
+            "dry_run=None 被当成了真还原 —— 用户的活文件被覆盖了"
+        )
+    finally:
+        asyncio.run(plugin.on_shutdown())
+
+
+def test_a_failed_store_write_is_reported_not_hidden(sandbox, monkeypatch) -> None:
+    """``persisted: false`` 是「没落盘」唯一的信号，不能被悄悄吞掉。
+
+    这个插件存在的意义就是抓别的软件「报告成功、实际没干」。一个用户动作的状态
+    写盘失败时，它不能干干净净地回一个 Ok —— 改动只活在内存里，重启就没了。
+    面板据此给的是错误提示，而不是成功提示。
+    """
+    ctx = _Ctx(base_url="http://127.0.0.1:1")
+    plugin = DignityGuardPlugin(ctx)
+    asyncio.run(plugin.on_startup())
+    try:
+        async def always_fails(key: str, value: Any) -> bool:
+            return False
+
+        monkeypatch.setattr(plugin, "_store_write", always_fails)
+        result = asyncio.run(plugin.set_guard_level(level="low"))
+        assert isinstance(result, Ok), result
+        assert result.value["persisted"] is False
+        assert "state_not_persisted" in plugin._health._events
+    finally:
+        asyncio.run(plugin.on_shutdown())
+
+
+def test_a_dispute_for_a_vanished_path_survives_its_own_tick() -> None:
+    """路径消失**本身**是一次变更 —— 它必须留在面板上，而不是被建了就删。
+
+    退休那一趟原先跑在 diff 循环**之后**：字段被删除时，同一 tick 先 ``_raise``
+    建出 dispute、紧接着被这趟 ``del`` 掉 —— ``raised`` 报了她一句，面板上却什么
+    都不剩，``_raise`` 做的 after_preview / times_raised 更新也全白做。
+    修法是把退休那趟挪到 diff 循环**之前**；这条测试就是那个顺序的守门人。
+    """
+    state = GuardState()
+    state.evaluate({"a.b": Value.of("x"), "keep.me": Value.of("k")})  # baseline
+    state.evaluate({"a.b": Value.of("y"), "keep.me": Value.of("k")})
+    assert "a.b" in state.disputes, "一次变更该建出一条 dispute"
+
+    evaluation = state.evaluate({"keep.me": Value.of("k")})  # a.b 消失
+    assert "a.b" in [change.path for change in evaluation.changes], (
+        "路径消失是一次变更，必须被报出来"
+    )
+    assert "a.b" in state.disputes, (
+        "她刚被报的这一条立刻被退休掉了 —— 面板会报一行、却什么都不剩"
+    )
