@@ -184,10 +184,18 @@ ISSUE_TRACKER = "https://github.com/amoandzhanggui-neko/n.e.k.o_plugin_dignity_g
 #: One note per this many seconds, per running plugin.
 #:
 #: The relay and the mailbox behind it are shared by every installed copy, so a
-#: stuck button or an over-eager script must not be able to drain the quota. A
-#: minute is far above what a human would trip and far below what a retry loop
-#: would.
-FEEDBACK_COOLDOWN_SECONDS = 60.0
+#: stuck button or an over-eager script must not be able to drain the quota.
+#:
+#: Measured against the live relay on 2026-09-25 — five posts two seconds apart
+#: all went through, and a sixth one second later came back ``429``. So the real
+#: ceiling is about five or six a minute, and this sits just under it.
+#:
+#: It used to be 60. That number was a guess wearing the costume of caution
+#: ("surely a human cannot trip a whole minute") — and its cost was concrete:
+#: somebody sending a long report in pieces waited five times longer than the
+#: relay ever asked them to. A limit nobody measured is not a limit that was
+#: chosen.
+FEEDBACK_COOLDOWN_SECONDS = 12.0
 
 # ----------------------------------------------------------------------
 # Fallback copy. Every string below is overridden by i18n/<locale>.json; the

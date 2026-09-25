@@ -171,12 +171,12 @@
   "ui.feedback.noEndpoint": "作者が直接受け取る窓口をまだ開いていないため、ここではコピーか提出ページを開くことしかできません。",
   "ui.feedback.sizeHint": "{size} KB 記載済み / この経路の上限は約 {limit} KB",
   "ui.feedback.tooLong": "この経路には長すぎます — 少し短くするか、二回に分けてください。",
-  "ui.feedback.attachments.title": "スクリーンショットやファイルを添付したい場合",
-  "ui.feedback.attachments.why": "この経路は添付を受け取れません — 実測済みです：添付は中継サービスに黙って捨てられます（それでいて「成功」を返すのが厄介な点）。下の2つの方法はどちらも使えます。楽なほうをどうぞ。",
+  "ui.feedback.attachments.title": "この経路は文字だけです",
+  "ui.feedback.attachments.why": "スクリーンショットやファイルはここを通りません — 実測済み：中継サービスは添付を黙って捨てます（それでいて「成功」を返すのが厄介な点）。添付したい場合は GitHub へ：無料、アカウント登録だけです。",
   "ui.feedback.attachments.step1": "1. GitHub アカウントを作成：github.com/signup （メールだけで数分、無料）",
   "ui.feedback.attachments.step2": "2. 下の「提出ページを開く」を押し、スクリーンショットやファイルを編集欄にドラッグ",
   "ui.feedback.attachments.step3": "3. 「診断情報をコピー」を押して本文に貼り、送信",
   "ui.feedback.attachments.copy": "診断情報をコピー",
   "ui.feedback.attachments.open": "提出ページを開く",
-  "ui.feedback.attachments.pasteInstead": "登録が面倒なら不要です — 送りたい内容を上の入力欄にそのまま貼り付け、「送信」を押してください。長い場合は数回に分けて（1回 63 KB まで、1分あけて）。"
+  "ui.feedback.attachments.pasteInstead": "長い文章なら、上の入力欄にそのまま貼り付けて「送信」してください — 十数秒に1回送れます。登録は不要です。"
 }

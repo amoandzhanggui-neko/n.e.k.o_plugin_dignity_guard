@@ -171,12 +171,12 @@
   "ui.feedback.noEndpoint": "The author has not opened a direct channel yet, so this can only copy the text or open a submission page.",
   "ui.feedback.sizeHint": "{size} KB written / about {limit} KB available on this channel",
   "ui.feedback.tooLong": "Too long for this channel — please trim it a little, or send it in two parts.",
-  "ui.feedback.attachments.title": "Want to attach a screenshot or a file?",
-  "ui.feedback.attachments.why": "This channel does not carry attachments — measured, not guessed: the relay silently drops them while still answering “success”, which is the nasty part. Both routes below work; take whichever is less trouble.",
+  "ui.feedback.attachments.title": "Text only on this channel",
+  "ui.feedback.attachments.why": "Screenshots and files do not survive here — measured: the relay silently drops attachments while still answering \"success\", which is the nasty part. To attach something, go through GitHub: free, and it only needs an account.",
   "ui.feedback.attachments.step1": "1. Create a GitHub account: github.com/signup (an email is enough, a few minutes, free)",
   "ui.feedback.attachments.step2": "2. Press Open the submission page below, then drag your screenshot or file straight into the editor",
   "ui.feedback.attachments.step3": "3. Press Copy the diagnostics, paste them into the body, and submit",
   "ui.feedback.attachments.copy": "Copy the diagnostics",
   "ui.feedback.attachments.open": "Open the submission page",
-  "ui.feedback.attachments.pasteInstead": "Registration a nuisance? Skip it — paste what you want to send straight into the box above and press Send. If it is long, send it in a few goes: 63 KB at a time, a minute apart."
+  "ui.feedback.attachments.pasteInstead": "Long text? Paste it straight into the box above and press Send — one every dozen seconds or so, and no sign-up needed."
 }

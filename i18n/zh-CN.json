@@ -171,12 +171,12 @@
   "ui.feedback.noEndpoint": "作者还没开通直连接收，所以这里只能「复制」，或者「打开提交页」。",
   "ui.feedback.sizeHint": "已写 {size} KB / 通道上限约 {limit} KB",
   "ui.feedback.tooLong": "太长了，服务器收不下 —— 请稍作精简，或者分两次发。",
-  "ui.feedback.attachments.title": "想附截图或文件？",
-  "ui.feedback.attachments.why": "这条通道不收附件 —— 实测过了：附件会被中转服务悄悄丢掉（接口还回“成功”，这点很坑）。下面两条路都能走，选省事的那个。",
+  "ui.feedback.attachments.title": "这条通道只能发文字",
+  "ui.feedback.attachments.why": "截图、文件这类附不进来 —— 实测过：中转会把附件悄悄丢掉（接口还回「成功」，这点很坑）。要附东西，请走 GitHub：免费，注册个账号就行。",
   "ui.feedback.attachments.step1": "1. 注册 GitHub 账号：github.com/signup （邮箱即可，几分钟，免费）",
   "ui.feedback.attachments.step2": "2. 点下面的「打开提交页」，把截图或文件直接拖进编辑框",
   "ui.feedback.attachments.step3": "3. 点「复制诊断信息」，粘到正文里，然后提交",
   "ui.feedback.attachments.copy": "复制诊断信息",
   "ui.feedback.attachments.open": "打开 GitHub 提交页",
-  "ui.feedback.attachments.pasteInstead": "嫌注册麻烦？那就不注册 —— 把要发的内容直接粘进上面的输入框，按「发送」就行。太长就分几次发：每次别超 63 KB，中间隔一分钟。"
+  "ui.feedback.attachments.pasteInstead": "文字太长的话，直接粘进上面的输入框，按「发送」就行 —— 十几秒能发一次，不用注册。"
 }

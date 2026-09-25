@@ -51,7 +51,7 @@
 | 还原 SQLite 数据库（宿主占用中）| 拒绝 | ✅ `live_database` |
 | 附件随反馈一起发 | **不能假装成功** | ✅ 如实告知"中转会丢掉"，不假装 |
 | 正文超过 body 上限 | 说清原因，不静默截断 | ✅ 返回尺寸 + 上限 + 建议 |
-| 反馈发太频 | 拦住 | ✅ 60 秒冷却 |
+| 反馈发太频 | 拦住 | ✅ 12 秒冷却（实测中转上限约 5–6 次/分）|
 | 空内容发送 | 拦住 | ✅ `empty_feedback` |
 
 ### 不该拦的（误伤了才是错）
@@ -115,7 +115,7 @@ cd <N.E.K.O> && .venv/Scripts/python.exe -m pytest plugin/plugins/dignity_guard/
 | 3 | **仓库仍未创建** | 代码里 6 处地址已于 2026-09-25 统一改为 `github.com/amoandzhanggui-neko/n.e.k.o_plugin_dignity_guard`（原先写作 `zhanggui-neko`）；该仓库**尚未创建**。影响：反馈的"退路"（打开提交页）打不开。**不影响一键反馈**（走中转，已实测互通）|
 | 4 | **独立仓库已建，但 remote 未配置** | 2026-09-25 建立（初始提交，见 `git log`）；官方 check 现在提示的是 `git remote 'origin' is not configured` —— 需要你的 GitHub 仓库地址才能消掉 |
 | 5 | 界面在**真实分辨率/缩放**下的观感未逐项核对 | 只验了语法与组件契约，没做人眼级 UI 走查 |
-| 6 | 免注册**分段粘贴**这条路径未端到端跑通 | 两个前提**分别**验过（单次 ≤63 KB ✅、间隔 ≥60 秒 ✅），但"把一份长报告分几次真发完"没有整条实测 |
+| 6 | 免注册**分段粘贴**这条路径未端到端跑通 | 两个前提**分别**验过（单次 ≤63 KB ✅、间隔 ≥12 秒 ✅），但"把一份长报告分几次真发完"没有整条实测 |
 | 7 | 交付包会带测试缓存 —— **已修，但依赖本地补丁** | `check --release` 的构建路径漏传 `source_only=True`，于是元数据探测子进程在暂存区写出 `__pycache__/*.pyc`，而最后导出 zip 那一步不做任何过滤（`neko_plugin_cli/core/build.py`）。**插件侧配置管不到这一层**（`tool.neko.build` 只作用于"复制"阶段）。已在本地给 `build_plugin` / `build_bundle` 各加 `source_only=True`（备份 `core/build.py.orig_20260925`）→ **202 KB / 7 个 pyc → 121 KB / 0 个 pyc**，`payload_hash_verified=True` 不变。⚠️ **用未打补丁的官方 CLI 重新打包会复发**，建议上游采纳这两行 |
 
 ---
@@ -139,7 +139,7 @@ cd <N.E.K.O> && .venv/Scripts/python.exe -m pytest plugin/plugins/dignity_guard/
 | 约束 | 实测值 | 出处 |
 |---|---|---|
 | 单次能发多大 | **65 477 字节**（逐字节二分）| 第二节第 13 项 |
-| 两次之间要等多久 | **60 秒冷却** | 第三节「该拦的」|
+| 两次之间要等多久 | **12 秒**（实测中转上限约 5–6 次/分钟）| 第三节「该拦的」|
 
 三语文案各有本地化说法（zh-CN / en / ja），**不共用一句英语糊过去**。
 
