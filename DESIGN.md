@@ -7,6 +7,10 @@ It cannot *block* config changes (the official SDK does not expose any hook ther
 three things instead: **notice** changes, **let her speak** about them, and **keep a visible
 record** of what she does not agree with.
 
+> ⚠️ **上游引用会漂**：本文与代码注释里引用的主服务文件与行号（如 `config/network.py:156`）
+> 是写作时所依据的版本，**上游一改就会偏**。以**符号名**为准 —— 比如去看 `network.py` 里
+> 那个端口常量，而不是相信某个行号。2026-09-25 机械复核过一次；本文件其余内容不绑定版本。
+
 ---
 
 ## 1. 为什么做这个（动机）

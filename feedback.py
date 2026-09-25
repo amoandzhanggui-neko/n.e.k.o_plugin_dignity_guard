@@ -86,6 +86,13 @@ DEFAULT_USER_AGENT = "dignity_guard-plugin/0.1.0"
 #: or anywhere near it.
 #:
 #: Set ``feedback_endpoint`` in the configuration to point somewhere else.
+#:
+#: Note this ships **non-empty on purpose**: out of the box there is a working
+#: relay, so "Send" is a real button rather than a form that refuses to post.
+#: The ``feedback_endpoint_missing`` branch is therefore reachable only when
+#: someone deliberately configures an empty address — which is a legitimate way
+#: to say "I run no relay; offer copy-and-open instead". Both paths are wanted;
+#: neither is dead.
 DEFAULT_FEEDBACK_ENDPOINT = "https://formsubmit.co/ajax/ffa69e2f591e397d28f8aaa7b66a4ec7"
 
 

@@ -485,6 +485,14 @@ class Value:
       which is honest, and
     * a *short* one is still recoverable from ``preview`` — see
       :func:`restore_payload`.
+
+    One edge is worth spelling out because it is quiet: the "she can only say
+    something" half surfaces through ``Evaluation.revert_blocked``, and that is
+    evaluated **when the path changes again**. If the value simply sits there
+    after a restart, the objection stays pending and visible on her panel (the
+    user can still accept it or keep objecting) but nothing announces that the
+    automatic undo is unavailable. That is the accepted cost of never writing
+    her persona to plugin storage — a limit of the design, not an oversight.
     """
 
     digest: str
