@@ -1,0 +1,41 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "N.E.K.O: check dignity_guard",
+      "type": "shell",
+      "command": "uv run python -m plugin.neko_plugin_cli.cli check dignity_guard",
+      "options": {
+        "cwd": "${config:nekoPlugin.repoRoot}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "N.E.K.O: sync dignity_guard",
+      "type": "shell",
+      "command": "uv run --with pip python -m plugin.neko_plugin_cli.cli sync dignity_guard --clean",
+      "options": {
+        "cwd": "${config:nekoPlugin.repoRoot}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "N.E.K.O: check -r dignity_guard",
+      "type": "shell",
+      "command": "uv run python -m plugin.neko_plugin_cli.cli check -r dignity_guard",
+      "options": {
+        "cwd": "${config:nekoPlugin.repoRoot}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "N.E.K.O: build dignity_guard",
+      "type": "shell",
+      "command": "uv run python -m plugin.neko_plugin_cli.cli build dignity_guard",
+      "options": {
+        "cwd": "${config:nekoPlugin.repoRoot}"
+      },
+      "problemMatcher": []
+    }
+  ]
+}
