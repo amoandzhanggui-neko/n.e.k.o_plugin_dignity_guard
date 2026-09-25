@@ -176,10 +176,22 @@ def _copy_database(source: Path, target: Path) -> str:
     which cannot disturb the host's own writer.
     """
     try:
-        with sqlite3.connect(
+        # ``with sqlite3.connect(...)`` commits the transaction but does **not**
+        # close the connection — so the previous form leaked two handles per
+        # backup (they only went away at GC, with a ResourceWarning). Close both
+        # explicitly; the inner ``try`` makes sure a failure in ``backup`` still
+        # releases the target handle.
+        origin = sqlite3.connect(
             f"file:{source.as_posix()}?mode=ro", uri=True, timeout=3.0
-        ) as origin, sqlite3.connect(str(target)) as copy:
-            origin.backup(copy)
+        )
+        try:
+            copy = sqlite3.connect(str(target))
+            try:
+                origin.backup(copy)
+            finally:
+                copy.close()
+        finally:
+            origin.close()
         return ""
     except Exception:  # noqa: BLE001 - any failure means "fall back and say so"
         shutil.copy2(source, target)

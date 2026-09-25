@@ -160,7 +160,13 @@ async def deliver(
                 retry_after = _retry_after_seconds(response)
                 rate_limited = True
             elif response.status_code >= 500:
-                last_error = f"the relay is unwell (HTTP {response.status_code})"
+                # A 5xx is not "come back later". The relay may have accepted
+                # the post and then failed while answering — retrying would send
+                # the user's note a second time. Report it instead, so they can
+                # decide whether to try again themselves.
+                raise FeedbackUndeliverable(
+                    target, f"the relay is unwell (HTTP {response.status_code})"
+                )
             else:
                 try:
                     response.raise_for_status()

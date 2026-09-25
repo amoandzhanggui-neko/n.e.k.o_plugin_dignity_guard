@@ -74,7 +74,7 @@
 ```bash
 # 单元测试
 cd <N.E.K.O> && .venv/Scripts/python.exe -m pytest plugin/plugins/dignity_guard/tests/ -q
-#   → 122 passed
+#   → 132 passed
 
 # 发布级检查（含打包）
 .venv/Scripts/python.exe -m plugin.neko_plugin_cli check plugin/plugins/dignity_guard --release
@@ -114,11 +114,11 @@ cd <N.E.K.O> && .venv/Scripts/python.exe -m pytest plugin/plugins/dignity_guard/
 |---|---|---|
 | 1 | **纠回的"定时器自动触发"未在真机上跑通** | 判定（第 7 项）和执行（第 8 项）**分别验过**，定时器在跑（第 4 项）也验过；但"定时器→判定→纠回"这一整条在沙箱里没串起来 —— 原因是**沙箱会回收子进程**，插件进程活不过观察窗口。**真机上不存在这个竞争** |
 | 2 | **附件不支持** | 实测：中转收下请求但**静默丢弃**附件（接口仍回 `success`）。同类服务要么收费，要么一样丢 |
-| 3 | **仓库仍未创建** | 代码里 6 处地址已于 2026-09-25 统一改为 `github.com/amoandzhanggui-neko/n.e.k.o_plugin_dignity_guard`（原先写作 `zhanggui-neko`）；该仓库**尚未创建**。影响：反馈的"退路"（打开提交页）打不开。**不影响一键反馈**（走中转，已实测互通）|
-| 4 | **独立仓库已建，但 remote 未配置** | 2026-09-25 建立（初始提交，见 `git log`）；官方 check 现在提示的是 `git remote 'origin' is not configured` —— 需要你的 GitHub 仓库地址才能消掉 |
 | 5 | 界面在**真实分辨率/缩放**下的观感未逐项核对 | 只验了语法与组件契约，没做人眼级 UI 走查 |
 | 6 | 免注册**分段粘贴**这条路径未端到端跑通 | 两个前提**分别**验过（单次 ≤63 KB ✅、间隔 ≥12 秒 ✅），但"把一份长报告分几次真发完"没有整条实测 |
 | 7 | 交付包会带测试缓存 —— **上游 CLI 的问题，影响已量化** | `check --release` 的构建路径漏传 `source_only=True`，元数据探测子进程于是在暂存区写出 `__pycache__/*.pyc`，而导出 zip 那一步不做任何过滤（`neko_plugin_cli/core/build.py`）。**插件侧配置管不到这一层**（`tool.neko.build` 只作用于“复制”阶段）。<br>**影响**：产物多 7 个 `.pyc`（202 KB vs 121 KB），**功能完全等价**，`payload_hash_verified=True` 不变 —— 这不是“产物不可复现”，而是“产物多带了缓存”。<br>**不依赖补丁的做法**：用官方 CLI 打包后，删掉产物里的 `__pycache__/` 再发布即可（已实测，不必改官方代码）。<br>本地补丁（`build_plugin` / `build_bundle` 各加 `source_only=True`，备份 `core/build.py.orig_20260925`）只是省掉这一步；**用未打补丁的官方 CLI 会复发**，所以已列入 `DESIGN.md` §7 要向官方提的清单 |
+
+| 8 | **本轮又发现的两处「假绿」，已修** | ① `_run_reverts` 的门控写成 `if evaluation.to_revert:`，漏掉了 `revert_blocked` —— 于是「想纠回但基线已丢」那一整轮**什么都不报**；② `_copy_database` 的 `with sqlite3.connect(...)` **只提交事务不关连接**，每次备份泄漏两个句柄。两处都已改（提交见 `git log`）|
 
 ---
 

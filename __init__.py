@@ -657,7 +657,13 @@ class DignityGuardPlugin(NekoPluginBase):
         # She has spoken; now the high tier may put something back. Kept
         # separate from ``_speak`` on purpose: a revert we cannot carry out
         # must never be a reason she falls silent.
-        if evaluation.to_revert:
+        # ``revert_blocked`` counts too: those are paths she asked to put back
+        # and we could not, because nothing on hand could be shown to be hers
+        # (see ``GuardState._revert_source``). Gating on ``to_revert`` alone
+        # meant a round that had *only* blocked paths reported nothing at all —
+        # which is precisely the "silently did nothing" shape this plugin exists
+        # to catch, committed by the plugin itself.
+        if evaluation.to_revert or evaluation.revert_blocked:
             await self._run_reverts(evaluation)
         return Ok(self._summary(evaluation))
 
@@ -1544,6 +1550,12 @@ class DignityGuardPlugin(NekoPluginBase):
             previous, self._tier = self._tier, cleaned
             if self._watcher is not None:
                 self._watcher.tier = self._tier
+            if self._tier != TIER_HIGH:
+                # ``_revert_outcomes`` describes what the *high* tier tried to put
+                # back. Once we leave high that list is stale — and it is rendered
+                # on the panel, so leaving it there would keep claiming the guard
+                # is restoring things it has already stopped restoring.
+                self._revert_outcomes = {}
             await self._persist_state()
         finally:
             self._end_exclusive()
@@ -1970,6 +1982,14 @@ class DignityGuardPlugin(NekoPluginBase):
         if not dry_run and planned:
             # The snapshot we hold no longer describes what is on disk.
             self._last_memory_check_at = None
+            # …and the *baseline* is stale for the same reason. Rescan, so the
+            # next tick diffs against what we just wrote back instead of
+            # reporting the restored files as brand-new changes — which would
+            # also schedule a backup for a directory that never really moved.
+            try:
+                self._memory_snapshot = await asyncio.to_thread(scan_memory, root)
+            except OSError:
+                self._memory_snapshot = {}
 
         return Ok(
             {
