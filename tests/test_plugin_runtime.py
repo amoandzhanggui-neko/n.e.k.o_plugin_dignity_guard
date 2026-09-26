@@ -527,3 +527,86 @@ def test_a_dispute_for_a_vanished_path_survives_its_own_tick() -> None:
     assert "a.b" in state.disputes, (
         "她刚被报的这一条立刻被退休掉了 —— 面板会报一行、却什么都不剩"
     )
+
+def test_away_restore_recognises_the_preferences_proactive_mirror(sandbox) -> None:
+    """`preferences.<idx>.proactive*` 是 proactive 的**镜像路径**，必须被当"她的"。
+
+    分级规则 `("preferences.*.proactive*", LEVEL_L1)` 认它是"她的自主权"
+    （那条规则自己的注释写着 "autonomy wherever it is found"）——
+    缺席恢复必须跟上，否则就成了"规则说它是她的、恢复却跳过它"。
+
+    另一半同样要钉住：`preferences.<idx>.position.x`（窗口位置）**必须跳过** ——
+    那是**用户自己的东西**，恢复不该动。
+    """
+    import asyncio
+    from plugin.plugins.dignity_guard import DignityGuardPlugin
+    from plugin.plugins.dignity_guard.settings_guard import SettingChange, Value
+
+    class _Recorder:
+        def __init__(self) -> None:
+            self.proactive_calls = []
+            self.catgirl_calls = []
+
+        async def post_proactive_settings(self, partial):
+            self.proactive_calls.append(dict(partial))
+            return {}
+
+        async def post_proactive_mode(self, mode):
+            self.proactive_calls.append({"__mode__": mode})
+            return {}
+
+        async def fetch_characters_raw(self):
+            # 刻意返回【被改后】的值 —— 恢复才真的需要写回。
+            return {"猫娘": {"YUI": {"昵称": "被改成了别的"}}}
+
+        async def put_catgirl(self, name, body):
+            self.catgirl_calls.append((name, dict(body)))
+            return {}
+
+    # 不真连任何服务 —— 下面把 client 整个换掉，这里只为了让构造器通过。
+    ctx = _Ctx(base_url="http://127.0.0.1:1")
+    plugin = DignityGuardPlugin(ctx)
+    rec = _Recorder()
+    plugin._client = rec  # type: ignore[assignment]
+
+    def _change(path: str, before: str, after: str) -> SettingChange:
+        return SettingChange(
+            path=path,
+            level="L1",
+            before=Value(digest=Value.of(before).digest, preview=before, kind="string"),
+            after=Value(digest=Value.of(after).digest, preview=after, kind="string"),
+        )
+
+    async def scenario() -> dict:
+        return {
+            # 镜像路径 → 走 proactive 写口
+            "mirror": await plugin._restore_change_after_absence(
+                _change("preferences.2.proactiveChatEnabled", True, False)
+            ),
+            # 窗口位置 → 用户的东西，必须跳过
+            "position": await plugin._restore_change_after_absence(
+                _change("preferences.2.position.x", "100", "200")
+            ),
+            # 模型路径 → 同样是用户的东西
+            "model": await plugin._restore_change_after_absence(
+                _change("preferences.2.model_path", "a", "b")
+            ),
+            # 角色卡字段 → 走被动那条路
+            "catgirl": await plugin._restore_change_after_absence(
+                _change("characters.猫娘.YUI.昵称", "先前的值", "被改成了别的")
+            ),
+        }
+
+    result = asyncio.run(scenario())
+
+    assert result["mirror"] == "", "镜像路径应当被恢复"
+    assert rec.proactive_calls == [{"proactiveChatEnabled": True}], (
+        "镜像应当转成 proactive 写口、写回旧值；实际 %r" % (rec.proactive_calls,)
+    )
+    assert result["position"] == "not_restorable", "窗口位置是用户的，不该动"
+    assert result["model"] == "not_restorable", "模型路径是用户的，不该动"
+    assert result["catgirl"] == "", "角色卡字段应当被恢复"
+    assert rec.catgirl_calls and rec.catgirl_calls[0][0] == "YUI", (
+        "角色卡字段应当被写回；实际调用 %r" % (rec.catgirl_calls,)
+    )
+    assert rec.catgirl_calls[0][1].get("昵称") == "先前的值", "应当写回旧值"

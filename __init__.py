@@ -1148,6 +1148,32 @@ class DignityGuardPlugin(NekoPluginBase):
         if path.startswith("proactive.settings.") or path.startswith("proactive_mode."):
             return await self._restore_proactive(change)
 
+        # ── 分支 1b：同一个东西的**镜像路径** ──────────────────────
+        # `preferences.<idx>.proactive<Field>` 是 `/api/config/preferences` 里
+        # `__global_conversation__` 那个镜像项展开来的 —— 真身仍在 proactive/settings。
+        # 平时 `prune_mirrored_preferences` 会把这个镜像整项剔掉，所以这条**极少出现**；
+        # 但分级规则 `("preferences.*.proactive*", L1)` 明确认它是"她的自主权"
+        # （那条规则自己注释写着"autonomy wherever it is found"），
+        # 那么缺席恢复也该认它 —— **规则说它是她的，恢复就不能漏**。
+        if path.startswith("preferences."):
+            parts = path.split(".")
+            if len(parts) == 3 and parts[2].startswith("proactive"):
+                if change.before is None:
+                    return "no_previous_value"
+                value = restore_payload(change.before)
+                if value is None:
+                    return "value_unavailable"
+                try:
+                    await client.post_proactive_settings({parts[2]: value})
+                except MainServerUnreachable as exc:
+                    self._health.record("away_restore_proactive_failed")
+                    self.logger.warning(
+                        "dignity_guard: away-restore(mirror) failed on {}: {}", path, exc
+                    )
+                    return "write_failed"
+                return ""
+            return "not_restorable"
+
         # ── 分支 2：角色卡字段 ──────────────────────────────────────
         parts = path.split(".")
         # 只认 `characters.猫娘.<name>.<field>` 这一层 —— 浅层普通字段。
