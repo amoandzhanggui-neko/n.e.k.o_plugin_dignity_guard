@@ -574,12 +574,32 @@ class Value:
 Snapshot = dict[str, Value]
 
 
+#: 响应**信封键** —— 不是设置，是 API 的包装；任何层级都不该进快照。
+#:
+#: 为什么要**显式**排除，而不是指望"反正它不会触发规则"：
+#:   ``revision`` 每轮设置变动都会 +1，``success`` 几乎每次响应都在。
+#:   它们留在快照里，就会把"有人改了设置"这件事**掺进一堆假信号**——
+#:   而本插件的立意恰恰是"设置真的变了，她才说话"。
+#:   ``writeId`` / ``writerId`` 是写入者元数据，同理。
+#:
+#: ⚠️ 判据：这几个键名在**任何层级**都不可能是一个用户设置。
+#:   所以这里做**全局**排除（递归时处处生效），而不是只剥顶层 ——
+#:   实测 ``decisions.independentAsrEnabled.writeId`` 就嵌在第三层。
+#:   有测试钉住这条（`test_envelope_keys_never_reach_the_snapshot`）。
+ENVELOPE_KEYS: frozenset[str] = frozenset(
+    {"success", "revision", "reset", "writeId", "writerId"}
+)
+
+
 def flatten(payload: Any, prefix: str = "") -> Snapshot:
     """Flatten a JSON payload into ``{dotted.path: Value}``.
 
     Mappings recurse; everything else (including lists) becomes a leaf, so a
     reordered list is reported as one change instead of an index-by-index
     cascade.
+
+    ★ 响应信封键（:data:`ENVELOPE_KEYS`）在**任何层级**都会被跳过 ——
+      理由见那份常量上的说明。
     """
     out: Snapshot = {}
     _flatten_into(payload, prefix, out)
@@ -589,6 +609,9 @@ def flatten(payload: Any, prefix: str = "") -> Snapshot:
 def _flatten_into(node: Any, prefix: str, out: Snapshot) -> None:
     if isinstance(node, Mapping):
         for key, value in node.items():
+            if str(key) in ENVELOPE_KEYS:
+                # 信封键 / 写入元数据：不是设置，进来只会制造假变更。
+                continue
             child = f"{prefix}.{key}" if prefix else str(key)
             _flatten_into(value, child, out)
         return

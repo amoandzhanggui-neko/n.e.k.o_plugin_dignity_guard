@@ -370,3 +370,62 @@ def test_page_furniture_never_asks_her_anything() -> None:
         "page_config.someFutureKey",
     ):
         assert classify(path) == LEVEL_L3, "page furniture must stay quiet: " + path
+
+
+# ---------------------------------------------------------------------------
+# 响应信封键（2026-09-26）
+# ---------------------------------------------------------------------------
+
+
+def test_envelope_keys_never_reach_the_snapshot() -> None:
+    """响应信封键不该进快照 —— 它们不是设置，进来只会制造假变更。
+
+    实测来源（``/api/config/conversation-settings``）：
+      顶层有 ``success`` / ``revision`` / ``reset``；
+      而 ``decisions.independentAsrEnabled`` 里嵌着 ``writeId`` / ``writerId``（第三层）。
+
+    为什么值得一条测试：``revision`` 每轮设置变动都会 +1。
+    它要是留在快照里，"有人改了设置"这句话就会被掺进一堆假信号 ——
+    而本插件全部的意义就是让这句话可信。
+    """
+    from plugin.plugins.dignity_guard import settings_guard as sg
+
+    payload = {
+        "success": True,
+        "revision": 42,
+        "reset": False,
+        "settings": {"proactiveChatEnabled": True, "focusModeEnabled": False},
+        "decisions": {
+            "independentAsrEnabled": {
+                "value": True,
+                "writeId": 7,
+                "writerId": "someone",
+            }
+        },
+    }
+    snap = sg.flatten(payload, "conversation")
+
+    for noisy in (
+        "conversation.success",
+        "conversation.revision",
+        "conversation.reset",
+        "conversation.decisions.independentAsrEnabled.writeId",
+        "conversation.decisions.independentAsrEnabled.writerId",
+    ):
+        assert noisy not in snap, "envelope key leaked into the snapshot: " + noisy
+
+    # 真设置必须原样留着 —— 排除不能矫枉过正
+    assert "conversation.settings.proactiveChatEnabled" in snap
+    assert "conversation.settings.focusModeEnabled" in snap
+    assert "conversation.decisions.independentAsrEnabled.value" in snap
+
+
+def test_envelope_exclusion_applies_at_every_depth() -> None:
+    """多包一层也要挡住 —— 排除是"全局"的，不是只剥顶层。"""
+    from plugin.plugins.dignity_guard import settings_guard as sg
+
+    payload = {"a": {"b": {"c": {"success": True, "revision": 3, "kept": "yes"}}}}
+    snap = sg.flatten(payload, "x")
+    assert "x.a.b.c.success" not in snap
+    assert "x.a.b.c.revision" not in snap
+    assert "x.a.b.c.kept" in snap

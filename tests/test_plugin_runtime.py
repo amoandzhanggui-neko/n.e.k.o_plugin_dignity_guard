@@ -138,9 +138,27 @@ def test_plugin_detects_a_change_and_speaks(sandbox, main_server) -> None:
     assert isinstance(result["quiet"], Ok)
     assert result["quiet"].value["status"] == "unchanged"
 
+    # ★ 2026-09-26：现在是**两条**，且顺序不能反 ——
+    #
+    #   ① 先发一条给**用户看**的通知：`visibility=["chat"] + ai_behavior="read"`。
+    #      它不触发 AI 回合，所以**不受"主动搭话"开关影响** —— 用户一定看得到
+    #      "设置被改了、她不高兴"，她也因此**知道**这件事（下次自然会提起）。
+    #   ② 再发一条 `ai_behavior="respond"` 让她**当场亲口说** —— 这是锦上添花，
+    #      发不出去（用户关了主动搭话）也没关系，① 已经保证用户知情。
+    #
+    # 起因是掌柜指出的风险：她（高档）把用户的设置放回原位后，如果用户还关了
+    # 主动搭话，她就说不出来 —— 用户只会看到"设置自己变了"，**像中了病毒**。
+    assert len(ctx.pushed_messages) == 2, "应为：先通知、后说话，共两条"
+
+    notice, spoken = ctx.pushed_messages[0], ctx.pushed_messages[1]
+    assert notice["ai_behavior"] == "read", "通知不能触发 AI 回合（否则又受主动搭话影响）"
+    assert notice["visibility"] == ["chat"], "通知必须写进对话，用户才看得到"
+    notice_text = _text_of(notice)
+    # 通知是**写给用户的**：不能把内部路径外壳端上去，也不该出现 L1/L2 这类代号。
+    assert "characters." not in notice_text, "通知里不该出现完整内部路径"
+    assert "conversation.settings.proactiveChatEnabled" not in notice_text
+
     # It spoke, in the user's language, with the situation rather than a script.
-    assert len(ctx.pushed_messages) == 1
-    spoken = ctx.pushed_messages[0]
     assert spoken["ai_behavior"] == "respond"
     text = _text_of(spoken)
     assert "A setting of yours was just changed" in text

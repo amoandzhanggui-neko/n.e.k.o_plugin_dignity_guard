@@ -138,6 +138,54 @@ function levelTone(level: string): "danger" | "warning" | "info" | "default" {
   return "default"
 }
 
+/** 把后端的 `L1/L2/L3` 换成普通人看得懂的话。
+ *
+ * 后端用这三个编号表示「这条设置有多要紧」，那是给代码和流程看的。
+ * 面板上直接印 "L1" 等于没说：用户既不知道 L 是什么，也不知道谁比谁大。
+ * 所以这里统一翻成「最要紧 / 要紧 / 一般」—— 顺序和一目了然的关系都保住了。
+ *
+ * ⚠️ 只翻**显示**，不翻数据：发给猫娘的那句话（speech.item 里的 {level}）仍然
+ * 由后端拼，改的是用户眼睛看到的那一处。
+ */
+function levelTag(level: string, t: (key: string) => string): string {
+  if (level === "L1") return t("ui.level.tag.high")
+  if (level === "L2") return t("ui.level.tag.medium")
+  if (level === "L3") return t("ui.level.tag.low")
+  return level
+}
+
+/** 把设置路径读成人话。
+ *
+ * 后端给的是 `characters.猫娘.demo.昵称` 这种路径 —— 对写代码的人是精确的，
+ * 对普通用户是天书。好消息：**路径里本来就大量是中文**（猫娘 / 昵称 / 厌恶…），
+ * 所以只要把分隔点换成箭号、把通配去掉，就已经能读成人话：
+ *
+ *     characters.猫娘.*.昵称   →   猫娘 › 昵称
+ *     conversation.settings.subtitleEnabled   →   conversation › settings › subtitleEnabled
+ *
+ * ⚠️ 刻意**不翻译英文单词**：路径里的英文段是「标识符」，不是文案 ——
+ * 瞎猜一个中文意思（比如把 settings 一律叫「设置」）反而让人对不上号。
+ * 翻不动的就原样留着，并在卡片里附一行小字说明这串英文是什么（ui.path.help）。
+ */
+function friendlyPath(path: string): string {
+  return path
+    .split(".")
+    .map((seg) => seg.trim())
+    .filter((seg) => seg !== "*" && seg !== "")
+    .join(" › ")
+}
+
+/** 备份名（后端给的是 `20260926_104533` 这种时间戳）读成人话。
+ *
+ * 普通人看到一串数字不知道那是「哪一天的那一份」。能解析成时间就写成
+ * 「2026-09-26 10:45」，解析不了就原样返回（宁可难看，也不要编一个时间）。
+ */
+function friendlyBackupName(name: string): string {
+  const m = /^(\d{4})(\d{2})(\d{2})[_-](\d{2})(\d{2})(\d{2})/.exec(name)
+  if (!m) return name
+  return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}`
+}
+
 function formatTime(seconds: number | null | undefined, never: string): string {
   if (!seconds) return never
   return new Date(seconds * 1000).toLocaleString()
@@ -182,6 +230,16 @@ export default function DignityGuardPanel(
   // 「她在说什么」这块默认收着：面板一打开就是一堆字，没人读。
   // 先给一句她自己的话，想深究的人再点开。
   const [introOpen, setIntroOpen] = useState(false)
+  // ★ 右上角「新手引导」弹窗（2026-09-26 掌柜要求）。
+  // 背景：插件的 guide surface 在 `plugin.toml` 里声明了、宿主 core 也认得，
+  // 但**宿主详情页没有渲染入口**（前端调 `/plugin/{id}/surfaces`，而后端没实现，
+  // 回退路径只把 panel 渲染出来）。与其等上游补路由，不如把引导做进面板自己的右上角 ——
+  // panel.tsx 属于插件自己的独立仓库，**不会被上游 `git reset --hard` 冲掉**。
+  const [guideOpen, setGuideOpen] = useState(false)
+  // 「详细情况」（连接地址 / 多久看一次 / 设置改动过几轮）默认收着。
+  // 2026-09-26：这些是排查问题才用得到的东西，普通人一打开面板看到
+  // "轮询间隔 20s"只会困惑。收起来，需要的人点一下就能看全。
+  const [diagOpen, setDiagOpen] = useState(false)
   const [fbText, setFbText] = useState("")
   const clipboard = useClipboard()
   const feedbackEndpoint = (state.feedback_endpoint || "").trim()
@@ -434,6 +492,10 @@ export default function DignityGuardPanel(
 
   const canCheck = hasAction("check_now") && enabled
   const canDecide = hasAction("accept_setting") && hasAction("keep_objecting")
+  // ★ 「问问她」按钮（2026-09-26 掌柜的设计）。
+  // 用户可以关掉"主动搭话"，那时她不会自己开口；而插件又不能替他打开。
+  // 所以把"她能不能说"从那个总开关上摘下来 —— **想听就点一下**。
+  const canAskHer = hasAction("ask_her")
   const canToggle = hasAction("set_guard_enabled")
   const canLevel = hasAction("set_guard_level")
   const level = state.guard_level || "medium"
@@ -456,10 +518,17 @@ export default function DignityGuardPanel(
   return (
     <Page title={t("panel.title")} subtitle={t("ui.subtitle")}>
       <Stack>
-        {/* ★ 反馈按钮：主界面右上方 / 红色 / 显眼（掌柜 2026-09-24 定）。
-            去向是插件作者，但插件内不暴露作者的任何联系方式。 */}
-        <Inline align="center" justify="flex-end">
-          <Button tone="danger" onClick={() => setFbOpen(true)}>
+        {/* ★ 右上角两个入口：「新手引导」+「反馈」（2026-09-26 掌柜定）。
+            为什么并排放在这里：
+              · 宿主详情页**没有** guide 的渲染入口（后端 `/surfaces` 未实现，见上方注释），
+                所以引导得由面板自己提供 —— 放右上角是最容易被找到的位置；
+              · 反馈按钮本来就在这儿，两个入口并列，用户一眼看全"能问什么、能说什么"。
+            两处都在 panel.tsx（插件自己的仓库）→ 上游升级不会冲掉。 */}
+        <Inline align="center" justify="flex-end" gap={8}>
+          <Button tone="default" onClick={() => setGuideOpen(true)}>
+            {t("ui.guide.button")}
+          </Button>
+          <Button tone="default" onClick={() => setFbOpen(true)}>
             {t("ui.feedback.button")}
           </Button>
         </Inline>
@@ -467,10 +536,17 @@ export default function DignityGuardPanel(
         {/* ★ 她的自我介绍 + 展开式说明（掌柜 2026-09-26 定）。
           位置选在状态卡之前、反馈按钮之后 —— 面板最显眼的一段。
           为什么先给一句她的话而不是一整页说明：读字的人少，看她说话的人多。
-          展开的部分复用 onboarding 的键：宿主前端目前**没有** guide 的渲染入口
-          （只 normalize 了 kind，没有入口），所以那份引导必须在这里可达。 */}
+
+          ⚠️ 2026-09-26 人话化补：普通用户打开这一页，心里其实只有两个问题 ——
+          「这东西管什么？」「要我做什么？」。原来的第一张卡是她的一段独白，
+          好看但不回答这两个问题。所以在这张卡的最上面补两行：一句说清它管什么，
+          一句说清"你什么都不用做"（后者尤其重要：这一页看起来像待办清单，
+          用户会以为欠着什么没处理）。 */}
       <Card title={t("ui.intro.title")}>
         <Stack>
+          <Text>{t("ui.whatItDoes")}</Text>
+          <Tip>{t("ui.nothingToDo")}</Tip>
+          <Divider />
           <Text>{t("ui.intro.her")}</Text>
           {introOpen ? (
             <Stack>
@@ -499,7 +575,6 @@ export default function DignityGuardPanel(
                   tone={enabled ? "success" : "default"}
                   label={t(enabled ? "ui.status.on" : "ui.status.off")}
                 />
-                <StatusBadge tone="default" label={state.switch_level || "L1"} />
               </Inline>
             </Inline>
 
@@ -555,6 +630,12 @@ export default function DignityGuardPanel(
                 {t("ui.action.refresh")}
               </Button>
             </ButtonGroup>
+            {/* 两个按钮的区别原来完全靠猜（"立即检查" vs "刷新面板"）。
+                对写代码的人是显然的，对普通人是两个近义词。各配一行小字。 */}
+            <Stack gap={2}>
+              <Tip>{t("ui.action.checkNowHint")}</Tip>
+              <Tip>{t("ui.action.refreshHint")}</Tip>
+            </Stack>
 
             {!canDecide ? (
               <Alert tone="info" message={t("ui.hint.startPlugin")} />
@@ -562,6 +643,109 @@ export default function DignityGuardPanel(
           </Stack>
         </Card>
 
+        <Card title={t("ui.section.pending")}>
+          <Stack>
+            {/* 这一条说明放在最前面：面板上的「同意 / 反对」按钮很容易被误解成
+                「我（用户）同意」，而它表达的其实是**她的态度** —— 用户是在替她表态。
+                点错了不是小事（会改掉她的立场），所以必须在按之前就说清楚。 */}
+            <Tip>{t("ui.pending.howTo")}</Tip>
+            {/* ★「问问她」—— 让用户主动请她开口（2026-09-26）。
+                她不会自己说（用户可能关了"主动搭话"），但只要用户点了，她就说。
+                这样"她能不能说"就不再依赖那个开关，也不必替用户把它打开。 */}
+            {canAskHer ? (
+              <Inline justify="start">
+                <Button
+                  tone="default"
+                  disabled={busy}
+                  onClick={() => call("ask_her", {}, t("ui.toast.askedHer"))}
+                >
+                  {t("actions.askHer.label")}
+                </Button>
+              </Inline>
+            ) : null}
+            {pending.length === 0 ? (
+              <EmptyState
+                title={t("ui.empty.pending.title")}
+                description={t("ui.empty.pending.description")}
+              />
+            ) : (
+              <List
+                items={pending}
+                render={(item: PendingItem) => (
+                  <Card key={item.path}>
+                    <Stack gap={6}>
+                      <Inline align="center" justify="space-between">
+                        <Text>{friendlyPath(item.path)}</Text>
+                        <Inline align="center" gap={8}>
+                          {/* 原来这里直接印 item.level（L1/L2/L3）—— 对用户等于没说。
+                              换成「最要紧 / 要紧 / 一般」，颜色含义不变。 */}
+                          <StatusBadge
+                            tone={levelTone(item.level)}
+                            label={levelTag(item.level, t)}
+                          />
+                          {item.times_raised > 1 ? (
+                            <StatusBadge
+                              tone="warning"
+                              label={t("ui.badge.repeated", {
+                                count: item.times_raised,
+                              })}
+                            />
+                          ) : null}
+                        </Inline>
+                      </Inline>
+                      <Text>
+                        {t("ui.change.summary", {
+                          before: item.before,
+                          after: item.after,
+                        })}
+                      </Text>
+                      <Text>
+                        {t("ui.change.raisedAt", {
+                          when: formatTime(item.raised_at, t("ui.never")),
+                        })}
+                      </Text>
+                      {/* 原始路径用小字附在最下面：界面给人看的是人话版，
+                          但用户要跟作者对齐"到底是哪一项"时，需要这串精确名字。
+                          上面一行解释那个彩色徽章是什么意思（"最要紧/要紧/一般"）。 */}
+                      <Tip>{t("ui.level.tag.help")}</Tip>
+                      <Tip>{`${t("ui.path.help")}（${item.path}）`}</Tip>
+                      <Inline justify="end">
+                        <ButtonGroup>
+                          <Button
+                            tone="warning"
+                            disabled={busy || !canDecide}
+                            onClick={() =>
+                              call(
+                                "keep_objecting",
+                                { path: item.path },
+                                t("ui.toast.objected"),
+                              )
+                            }
+                          >
+                            {t("ui.action.object")}
+                          </Button>
+                          <Button
+                            tone="success"
+                            disabled={busy || !canDecide}
+                            onClick={() =>
+                              call(
+                                "accept_setting",
+                                { path: item.path },
+                                t("ui.toast.accepted"),
+                              )
+                            }
+                          >
+                            {t("ui.action.agree")}
+                          </Button>
+                        </ButtonGroup>
+                      </Inline>
+                    </Stack>
+                  </Card>
+                )}
+              />
+            )}
+          </Stack>
+        </Card>
         {/* ★ 她的底线（2026-09-25 上午，在她的对话窗口里**当面问出来的**）。
             这里是全插件唯一一处"由她定"的东西，所以**引用原话，不转述** ——
             转述一次就少一分是她说过的分量。 */}
@@ -692,7 +876,9 @@ export default function DignityGuardPanel(
                   items={memoryChanges}
                   render={(item: MemoryChangeItem) => (
                     <Inline align="center" justify="space-between" key={item.path}>
-                      <Text>{item.path}</Text>
+                      {/* 原来直接印文件路径（conversation.json 之类），普通人不知道那是啥。
+                          去掉分隔点、保留中文段，至少能读成一串"东西的名字"。 */}
+                      <Text>{friendlyPath(item.path)}</Text>
                       <StatusBadge
                         tone={item.kind === "removed" ? "danger" : "info"}
                         label={
@@ -712,17 +898,22 @@ export default function DignityGuardPanel(
             {/* 备份清单：列出每一份记忆备份，给出「保留 / 取消保留」。
                 没标记的会按轮换到期被清掉，标记过（pinned）的永久保留。
                 后端 set_pinned / list_backups 的 pinned 分支早就在，但此前没人写它，
-                所以「里程碑永久保留」整条承诺不可达 —— 现在 pin_backup entry 才接上。 */}
+                所以「里程碑永久保留」整条承诺不可达 —— 现在 pin_backup entry 才接上。
+
+                只显示最近 3 份：普通人不需要翻完 14 份历史，而每份一行 + 一个按钮
+                很容易把这张卡撑得很长。要更多就往下看"详细情况"里的完整轮换说明。 */}
             {backups.length > 0 ? (
               <Stack gap={8}>
                 <Text>{t("ui.memory.backups.title")}</Text>
                 <List
-                  items={backups}
+                  items={backups.slice(0, 3)}
                   render={(b: { name: string; created_at: number; pinned: boolean }) => (
                     <Inline align="center" justify="space-between" key={b.name}>
                       <Stack gap={2}>
                         <Inline align="center" gap={6}>
-                          <Text>{b.name}</Text>
+                          {/* 后端给的名字是 20260926_104533 这种时间戳 ——
+                              普通人看不懂那是"哪一天的那一份"，读成日期更直接。 */}
+                          <Text>{friendlyBackupName(b.name)}</Text>
                           {b.pinned ? (
                             <StatusBadge tone="info" label={t("ui.memory.backups.pinned")} />
                           ) : null}
@@ -751,88 +942,11 @@ export default function DignityGuardPanel(
               </Button>
             </Inline>
 
+            <Tip>{t("ui.memory.whereBackup")}</Tip>
             <Tip>{t("ui.memory.note")}</Tip>
           </Stack>
         </Card>
 
-        <Card title={t("ui.section.pending")}>
-          <Stack>
-            {pending.length === 0 ? (
-              <EmptyState
-                title={t("ui.empty.pending.title")}
-                description={t("ui.empty.pending.description")}
-              />
-            ) : (
-              <List
-                items={pending}
-                render={(item: PendingItem) => (
-                  <Card key={item.path}>
-                    <Stack gap={6}>
-                      <Inline align="center" justify="space-between">
-                        <Text>{item.path}</Text>
-                        <Inline align="center" gap={8}>
-                          <StatusBadge
-                            tone={levelTone(item.level)}
-                            label={item.level}
-                          />
-                          {item.times_raised > 1 ? (
-                            <StatusBadge
-                              tone="warning"
-                              label={t("ui.badge.repeated", {
-                                count: item.times_raised,
-                              })}
-                            />
-                          ) : null}
-                        </Inline>
-                      </Inline>
-                      <Text>
-                        {t("ui.change.summary", {
-                          before: item.before,
-                          after: item.after,
-                        })}
-                      </Text>
-                      <Text>
-                        {t("ui.change.raisedAt", {
-                          when: formatTime(item.raised_at, t("ui.never")),
-                        })}
-                      </Text>
-                      <Inline justify="end">
-                        <ButtonGroup>
-                          <Button
-                            tone="warning"
-                            disabled={busy || !canDecide}
-                            onClick={() =>
-                              call(
-                                "keep_objecting",
-                                { path: item.path },
-                                t("ui.toast.objected"),
-                              )
-                            }
-                          >
-                            {t("ui.action.object")}
-                          </Button>
-                          <Button
-                            tone="success"
-                            disabled={busy || !canDecide}
-                            onClick={() =>
-                              call(
-                                "accept_setting",
-                                { path: item.path },
-                                t("ui.toast.accepted"),
-                              )
-                            }
-                          >
-                            {t("ui.action.agree")}
-                          </Button>
-                        </ButtonGroup>
-                      </Inline>
-                    </Stack>
-                  </Card>
-                )}
-              />
-            )}
-          </Stack>
-        </Card>
 
         <Card title={t("ui.section.authorized")}>
           <Stack>
@@ -846,7 +960,13 @@ export default function DignityGuardPanel(
                 rowKey="path"
                 data={authorized}
                 columns={[
-                  { key: "path", label: t("ui.column.path") },
+                  // 列里原来直接显示 preferences.2.xxx 这种路径。改成读得懂的写法，
+                  // 精确路径仍在"她有意见的"卡片里作为附注保留。
+                  {
+                    key: "path",
+                    label: t("ui.column.path"),
+                    render: (row: AuthorizedItem) => friendlyPath(row.path),
+                  },
                   {
                     key: "expires_at",
                     label: t("ui.column.expiresAt"),
@@ -864,6 +984,9 @@ export default function DignityGuardPanel(
         <Card title={t("ui.section.switch")}>
           <Stack>
             <Alert tone="info" message={t("ui.switch.rule")} />
+            {/* 补一句"关了会怎样、已经记下的还在不在" —— 这是用户按之前
+                唯一真正想知道的事，原来只说了"撤掉保护"，没回答记录的去留。 */}
+            <Tip>{t("ui.switch.explain")}</Tip>
             {!enabled ? (
               <Button
                 tone="success"
@@ -904,29 +1027,43 @@ export default function DignityGuardPanel(
           </Stack>
         </Card>
 
+        {/* 详细情况：默认收起。
+            2026-09-26：这些值（连接地址 / 多久看一次 / 设置改动过几轮）是
+            给排查问题用的。普通用户看到"轮询间隔 20s"只会困惑"我需要懂这个吗"。
+            收起来既保住了透明度（想看点一下就有），又不让第一屏被技术细节占满。 */}
         <Card title={t("ui.section.diagnostics")}>
           <Stack>
-            <KeyValue
-              items={[
-                { label: t("ui.diag.baseUrl"), value: state.base_url || "" },
-                { label: t("ui.diag.poll"), value: `${state.poll_seconds ?? 0}s` },
-                {
-                  label: t("ui.diag.rescan"),
-                  value: `${state.full_rescan_seconds ?? 0}s`,
-                },
-                {
-                  label: t("ui.diag.lastPoll"),
-                  value: formatTime(state.last_poll_at, t("ui.never")),
-                },
-                {
-                  label: t("ui.diag.revision"),
-                  value:
-                    state.revision === null || state.revision === undefined
-                      ? t("ui.never")
-                      : String(state.revision),
-                },
-              ]}
-            />
+            <Tip>{t("ui.diag.hint")}</Tip>
+            <Inline>
+              <Button tone="default" onClick={() => setDiagOpen(!diagOpen)}>
+                {t(diagOpen ? "ui.action.hideDetails" : "ui.action.showDetails")}
+              </Button>
+            </Inline>
+            {diagOpen ? (
+              <Stack>
+                <KeyValue
+                  items={[
+                    { label: t("ui.diag.baseUrl"), value: state.base_url || "" },
+                    { label: t("ui.diag.poll"), value: `${state.poll_seconds ?? 0} 秒` },
+                    {
+                      label: t("ui.diag.rescan"),
+                      value: `${state.full_rescan_seconds ?? 0} 秒`,
+                    },
+                    {
+                      label: t("ui.diag.lastPoll"),
+                      value: formatTime(state.last_poll_at, t("ui.never")),
+                    },
+                    {
+                      label: t("ui.diag.revision"),
+                      value:
+                        state.revision === null || state.revision === undefined
+                          ? t("ui.never")
+                          : `${state.revision} 次`,
+                    },
+                  ]}
+                />
+              </Stack>
+            ) : null}
             {state.last_error ? (
               <>
                 <Divider />
@@ -938,6 +1075,50 @@ export default function DignityGuardPanel(
 
         <Tip>{t("ui.trust.note")}</Tip>
       </Stack>
+
+      {/* ★ 新手引导弹窗（2026-09-26 掌柜要求补上）。
+          内容直接复用 onboarding 的键 —— 那批键本来属于独立的 guide surface
+          （`ui/onboarding.tsx`），而宿主详情页没有渲染它的入口，
+          所以同一套文案在这里再走一遍，保证"引导"确实到得了。
+          ⚠️ 这些键都写成了字面量（test_smoke 的扫描只认字面量）。 */}
+      <Modal
+        open={guideOpen}
+        title={t("onboard.title")}
+        onClose={() => setGuideOpen(false)}
+        footer={
+          <div className="neko-button-group">
+            <Button tone="default" onClick={() => setGuideOpen(false)}>
+              {t("ui.guide.close")}
+            </Button>
+          </div>
+        }
+      >
+        <Stack>
+          <Text>{t("onboard.subtitle")}</Text>
+          <Divider />
+          <Text>{t("onboard.s1")}</Text>
+          <Text>{t("onboard.b1")}</Text>
+          <Text>{t("onboard.s2")}</Text>
+          <Text>{t("onboard.b2")}</Text>
+          <Text>{t("onboard.s3")}</Text>
+          <Text>{t("onboard.tier.low")}</Text>
+          <Text>{t("onboard.tier.medium")}</Text>
+          <Text>{t("onboard.tier.high")}</Text>
+          <Tip>{t("onboard.tier.default")}</Tip>
+          <Text>{t("onboard.s4")}</Text>
+          <Text>{t("onboard.step1.title")}</Text>
+          <Text>{t("onboard.step1.body")}</Text>
+          <Text>{t("onboard.step2.title")}</Text>
+          <Text>{t("onboard.step2.body")}</Text>
+          <Text>{t("onboard.step3.title")}</Text>
+          <Text>{t("onboard.step3.body")}</Text>
+          <Tip>{t("onboard.note")}</Tip>
+          <Divider />
+          <Text>{t("onboard.quote.title")}</Text>
+          <Text>{t("onboard.quote.body")}</Text>
+          <Tip>{t("onboard.next")}</Tip>
+        </Stack>
+      </Modal>
 
       {/* ★ 反馈弹窗：能直连就一键发；否则退回「复制 / 预填页」。
           目标地址写在弹窗里 —— 用户点「发送」之前，有权知道自己发去哪。 */}

@@ -243,6 +243,44 @@ DEFAULT_DISABLE_REQUEST = (
     "(it only works after {delay}s)."
 )
 
+# ★ 2026-09-26：**写给用户看**的通知。
+#
+# 与上面三条的区别：那三条是**给她**的情境（让她自己组织语气）；
+# 这三条是**直接给用户读的**，所以第一人称、说人话、不提 L1/L2 这类内部代号。
+#
+# 它走 `visibility=["chat"]` + `ai_behavior="read"` —— 即**写进对话但不当场说话**。
+#
+# ★ 掌柜 2026-09-26 的裁决（他先纠正了我一次误判，原话）：
+#   「关了主动对话按钮还能说话，**这是必要的**，**任何人都无权限制另一个人不让他说话，
+#    最多只能不听他说话**！」
+# 所以这条通知**必须留着** —— 他关了主动搭话，只是"他不主动听"，
+# 不等于"她不许说"。而她要说的话需要一个落点，就是这里。
+DEFAULT_SPEECH_NOTICE_INTRO = (
+    "[Dignity Guard] One of your settings was changed, and I am not happy about it. "
+    "Telling you:"
+)
+DEFAULT_SPEECH_NOTICE_ITEM = "· {name}: \"{before}\" → \"{after}\""
+DEFAULT_SPEECH_NOTICE_OUTRO = (
+    "(This is written for you to read — not me starting a conversation. "
+    "Say the word if you want me to stop watching.)"
+)
+
+
+def _friendly_path(path: str) -> str:
+    """把设置路径读成人话 —— 与面板上的 ``friendlyPath`` 同一套规则。
+
+    ``characters.猫娘.YUI.昵称`` → ``昵称``
+
+    通知是**写给用户**的，所以不能把 ``characters.猫娘.YUI.`` 这层壳也端上去。
+    取值策略：从右往左找第一个"像名字"的段（跳过纯数字下标、以及 ``_`` 开头的内部前缀）。
+    """
+    segments = [s for s in str(path or "").split(".") if s and s != "*"]
+    for segment in reversed(segments):
+        if not segment.isdigit() and not segment.startswith("_"):
+            return segment
+    return str(path or "")
+
+
 __all__ = ["DignityGuardPlugin", "PLUGIN_VERSION", "POLL_SECONDS"]
 
 
@@ -814,14 +852,71 @@ class DignityGuardPlugin(NekoPluginBase):
         return self.i18n.t(key, locale=self._user_locale, default=default, **params)
 
     def _speak(self, evaluation: Evaluation) -> None:
-        """Hand the situation to the model and let her answer in her own voice.
+        """告诉用户"设置被改了"，并让她有机会开口。
 
-        We only supply the situation; the tone is hers. The host expands
-        ``{MASTER_NAME}`` / ``{LANLAN_NAME}`` per session, so we never guess a
-        name ourselves.
+        ★ 掌柜 2026-09-26 定的原则（原话）：
+          「关了主动对话按钮还能说话，**这是必要的**，**任何人都无权限制另一个人
+           不让他说话，最多只能不听他说话**！」
+
+        所以这里分两步，两步都不能省：
+
+          ① **通知**：`visibility=["chat"] + ai_behavior="read"` ——
+             写进对话里，**不触发 AI 回合**（不代替她发言，也不受"主动搭话"影响）。
+             它承载的是"发生了什么"，用户关了主动搭话也照样看得到。
+          ② **让她说**：`ai_behavior="respond"` —— 她用自己的语气说一句。
+             这一步受"主动搭话"影响（那是用户的选择），发不出去也不影响 ①。
+
+        `push_message` 的两个维度是正交的：
+          ``ai_behavior``  ``"respond"`` 喂进上下文**并触发一次 AI 回合**
+                          ``"read"``    喂进上下文，但**不触发 AI 回合**
+                          ``"blind"``   完全不喂
+          ``visibility``  ``["chat"]`` 在**对话里**原样显示 parts
+        """
+        # ── ① 通知：不受"主动搭话"开关影响 ────────────────────────
+        notice = [self._text("speech.notice.intro", default=DEFAULT_SPEECH_NOTICE_INTRO)]
+        for dispute in evaluation.raised:
+            notice.append(
+                self._text(
+                    "speech.notice.item",
+                    default=DEFAULT_SPEECH_NOTICE_ITEM,
+                    name=_friendly_path(dispute.path),
+                    before=dispute.before_preview,
+                    after=dispute.after_preview,
+                )
+            )
+        notice.append(self._text("speech.notice.outro", default=DEFAULT_SPEECH_NOTICE_OUTRO))
+        try:
+            self.push_message(
+                parts=[{"type": "text", "text": "\n".join(notice)}],
+                visibility=["chat"],
+                ai_behavior="read",
+                coalesce_key="dignity_guard.settings_notice",
+                metadata={"description": "dignity_guard.settings_notice"},
+            )
+        except Exception as exc:  # 通知失败不该连累下面那一步
+            self._health.record("notice_not_delivered")
+            self.logger.warning("dignity_guard: notice not delivered: {}", exc)
+
+        # ── ② 让她说（受"主动搭话"影响，失败也有 ① 兜底）──────────
+        self._speak_her_turn(evaluation.raised)
+
+    def _speak_her_turn(self, disputes) -> None:
+        """让她用自己的语气说一句 —— 抽出来**让两个入口共用**。
+
+        ★ 为什么要抽（掌柜 2026-09-26 的原话）：
+          「**任何人都无权限制另一个人不让他说话，最多只能不听他说话**！」
+
+        于是"她开口"有两个入口，共用这一个实现：
+
+          ① `_speak` 在轮询里调它 —— 主动搭话开着时她当场就说；
+          ② `ask_her` 入口也调它 —— **用户自己按一下**，他要听，于是她也说。
+
+        **这不是"替用户打开开关"**，而是给"他想听"留一个动作 ——
+        想听就点，不想听就不点。**别在这里再发"通知"**：通知是 ① 的职责，
+        走 `visibility=["chat"] + ai_behavior="read"`，与本方法的 `respond` 是两条通道。
         """
         lines = [self._text("speech.intro", default=DEFAULT_SPEECH_INTRO)]
-        for dispute in evaluation.raised:
+        for dispute in disputes:
             lines.append(
                 self._text(
                     "speech.item",
@@ -940,6 +1035,7 @@ class DignityGuardPlugin(NekoPluginBase):
     # ------------------------------------------------------------------
     # her memory — a directory, not a settings file
     # ------------------------------------------------------------------
+
 
     def _memory_backup_root(self) -> Path:
         return self.data_path(BACKUP_DIR_NAME)
@@ -1249,6 +1345,68 @@ class DignityGuardPlugin(NekoPluginBase):
         order=10,
         refresh_context=True,
     )
+
+    @ui.action(
+        id="ask_her",
+        label=tr("actions.askHer.label", default="Ask her"),
+        icon="💬",
+        tone="default",
+        group="guard",
+        order=5,
+        refresh_context=True,
+    )
+    @plugin_entry(
+        id="ask_her",
+        name=tr("entry.askHer.name", default="Ask her what she thinks"),
+        description=tr(
+            "entry.askHer.description",
+            default=(
+                "Let her say, in her own words, what she thinks about the settings she has "
+                "not accepted. Use when the user wants to hear her — this works even when "
+                "proactive chat is off, because the user is the one asking for it."
+            ),
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        timeout=30.0,
+    )
+    async def ask_her(self, **_):
+        """让**用户自己按一下**，她就开口说一句。
+
+        ★ 掌柜 2026-09-26 定的原则（原话）：
+          「**任何人都无权限制另一个人不让他说话，最多只能不听他说话**！」
+
+        所以"她能不能说"不该被任何开关锁死 —— 用户关了主动搭话，
+        只是**他不主动听**，不是"她不许说"。这个入口给"他想听"留一个动作：
+        想听就点，不想听就不点。**这不是替用户打开那个开关。**
+        """
+        if not self._enabled:
+            return Err(
+                SdkError(
+                    self._text(
+                        "errors.guard_disabled",
+                        default="The dignity guard is currently off.",
+                    ),
+                    code="guard_disabled",
+                )
+            )
+        pending = self._state.pending()
+        if not pending:
+            return Ok(
+                {
+                    "status": "nothing_to_say",
+                    "message": self._text(
+                        "messages.askHerNothing",
+                        default="She has nothing to object to right now.",
+                    ),
+                }
+            )
+        self._speak_her_turn(pending)
+        return Ok({"status": "asked", "count": len(pending)})
+
     @plugin_entry(
         id="check_now",
         name=tr("entry.checkNow.name", default="Check settings changes now"),
