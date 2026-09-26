@@ -827,11 +827,12 @@ class DignityGuardPlugin(NekoPluginBase):
             # local store write.
             if evaluation.first_seen or evaluation.has_changes:
                 await self._persist_state()
-            # ★ 首次轮询时记下"这一轮发现了多少改动"。
-            # 若本次启动检测到缺席（`_away_seconds` 非空），这些就是
-            # **我不在的时候被改的** —— 见 `_note_away_gap` 的说明。
-            if evaluation.first_seen and self._away_seconds is not None:
-                self._away_change_count = len(evaluation.raised)
+            # ★ 缺席期间被改的项数 —— 见 `_note_away_gap` 的说明。
+            # ⚠️ 注意**不是**在 `first_seen` 上判：`first_seen` 表示"快照为空、首次建立基线"，
+            # 而缺席后重启时**快照是从磁盘恢复的**，走的是正常 diff 路径。
+            # 这里每次轮询都刷一次，只有在"本进程第一次看到改动"时才真正落值。
+            if self._away_seconds is not None and self._away_change_count is None:
+                self._away_change_count = len(evaluation.changes)
                 if self._away_change_count:
                     self._health.record("away_with_changes")
             baseline_paths = len(self._state.snapshot)
@@ -875,6 +876,14 @@ class DignityGuardPlugin(NekoPluginBase):
         # that promises "record it but do not bother her" — push a message
         # whose body was an empty bullet list. Being asked to comment on
         # nothing is worse than not being asked at all.
+        # ★ 缺席恢复（放在她说话之前 —— 先把她被改的东西放回去，再让她开口）。
+        # 锁外做的理由同上：恢复要向主服务读写，不该占着锁。
+        # 条件只看 `_away_seconds`（本次启动检测到"我离开过"）：
+        # 缺席后重启**不是** `first_seen` —— 快照是从磁盘恢复的，
+        # 所以会走正常 diff 路径，`evaluation.changes` 里就是
+        # "我不在时被改的"全部内容。
+        if self._away_seconds is not None:
+            await self._restore_absent_changes(evaluation)
         if evaluation.raised:
             self._speak(evaluation)
         # She has spoken; now the high tier may put something back. Kept
@@ -1049,6 +1058,111 @@ class DignityGuardPlugin(NekoPluginBase):
                 self.logger.info(
                     "dignity_guard: left {} as it was ({})", change.path, reason
                 )
+
+    async def _restore_absent_changes(self, evaluation: Evaluation) -> None:
+        """缺席恢复：**她不在场那段时间被改的她的东西**，放回去。
+
+        ★ 2026-09-26 掌柜定的（原话）：
+          「如果说用户退出插件改好再加载插件，那咱们的插件跟没做一样，
+           在插件恢复后要把那些被改的东西全部恢复回来。无论用户对咱们的插件怎么设置，
+           都是一样。」→ 随后收敛为：「**她的东西恢复，用户东西当然就不用恢复了**」
+          「档位的含义针对正常情况下的用户，用户这样做已经明显不正常了，
+           咱们的插件是维护猫娘尊严的，所以必须要这么做。」
+
+        与 `_revert_change` 的**分工**（两条路，别混）：
+          · `_revert_change`：**高档**回滚，且只动 `REVERTIBLE_CATFIELDS`
+            —— 那是**她本人声明**过"绝对不能碰"的几个字段；
+          · 本方法：**缺席恢复**，范围**更宽**。理由是**"绕过"不是协商** ——
+            用户趁插件不在把她的东西改了，不该再被"她只声明了 6 个字段"限制住。
+            所以档位在这里**不适用**（档位管的是正常使用）。
+
+        范围只到 `characters.猫娘.<name>.<field>`（**浅层普通字段**）：
+        `_reserved.*`（外观/光照/模型路径）与更深层结构这里**不碰** —— 那是用户自己的东西。
+
+        ⚠️ `proactive*` 那类（她的自主权）走的是另一个写接口，本方法不处理，
+        见 `_away_note` 里给她的提示语。
+        """
+        self._revert_outcomes = {}
+        restored = 0
+        for change in evaluation.changes:
+            reason = await self._restore_change_after_absence(change)
+            if reason == "not_restorable":
+                continue  # 不是她的东西（用户自己的设置），本就不该动
+            self._revert_outcomes[change.path] = reason
+            if reason:
+                self.logger.info(
+                    "dignity_guard: away-restore left {} as it was ({})",
+                    change.path,
+                    reason,
+                )
+            else:
+                restored += 1
+        if restored:
+            self._health.record("away_restored")
+            self.logger.info(
+                "dignity_guard: restored %d of her settings changed while it was off",
+                restored,
+            )
+
+    async def _restore_change_after_absence(self, change: SettingChange) -> str:
+        """把一条"她的东西"写回缺席前的值。``""`` 成功；``not_restorable`` = 不该动。
+
+        读-改-写的理由与 `_revert_change` 相同（那个端点整份替换、未传字段全删，
+        `crud.py:1432-1438`），所以只能"读出来、改一个、整份送回去"。
+        """
+        client = self._client
+        if client is None:
+            return "not_ready"
+
+        parts = str(change.path or "").split(".")
+        # 只认 `characters.猫娘.<name>.<field>` 这一层 —— 浅层普通字段。
+        # 更深的自定义结构（_reserved.avatar.vrm.lighting.*）**不是她的东西**，是用户的。
+        if (
+            len(parts) != 4
+            or parts[0] != "characters"
+            or parts[1] != "猫娘"
+            or parts[3].startswith("_")
+        ):
+            return "not_restorable"
+
+        name = parts[2]
+        field = parts[3]
+
+        if change.before is None:
+            return "no_previous_value"
+        value = restore_payload(change.before)
+        if value is None:
+            self._health.record("away_restore_value_unavailable")
+            return "value_unavailable"
+        if not value:
+            # 那个端点跳过 falsy 值（`crud.py:1442`），空原值写不回去。
+            # 如实说明，不要假装成功。
+            self._health.record("away_restore_value_empty")
+            return "empty_value"
+
+        try:
+            payload = await client.fetch_characters_raw()
+        except MainServerUnreachable as exc:
+            self._health.record("away_restore_read_failed")
+            self.logger.warning("dignity_guard: away-restore could not read: {}", exc)
+            return "read_failed"
+
+        catgirls = payload.get("猫娘")
+        body = catgirls.get(name) if isinstance(catgirls, Mapping) else None
+        if not isinstance(body, Mapping):
+            return "character_missing"
+        if body.get(field) == value:
+            return ""  # 已经是那个值了（她自己放回的，或本来就没变）
+
+        updated = dict(body)
+        updated[field] = value
+        try:
+            await client.put_catgirl(name, updated)
+        except MainServerUnreachable as exc:
+            self._health.record("away_restore_write_failed")
+            self.logger.warning("dignity_guard: away-restore failed: {}", exc)
+            return "write_failed"
+        return ""
 
     async def _revert_change(self, change: SettingChange) -> str:
         """Put one persona field back. Returns ``""`` on success, else a reason.
