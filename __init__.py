@@ -1273,11 +1273,16 @@ class DignityGuardPlugin(NekoPluginBase):
             # about, so it should be quoted, not summarised.
             "revertible_fields": sorted(REVERTIBLE_CATFIELDS),
             "her_words": HER_PROTECTION_STATEMENT,
-            # 这三样原先只是"写了但没人读"的常量 —— 注释说面板会照它说明附件、
-            # 会指到 issues 页、会引用她的理由，实际上面板一样都没拿到。与其删掉
-            # （那会丢掉一个已经设计好的功能，也丢掉"她为什么护着这几个字段"的
-            # 原话），不如真的发下去。
-            "her_reason": HER_PROTECTION_REASON,
+            # ⚠️ 2026-09-26 掌柜指出：「我当面问过她本人，她说……」这句**不能发给用户**。
+            # 那是**我们对这台机器上的猫娘**做过的事，而插件是给所有用户的 ——
+            # 别人的猫娘没被问过。所以这里**停发**（面板对空值本就不渲染，
+            # 前端 ui.herLine.reason 也已改成"不预设"的说法）。
+            #
+            # ⚠️ 同类问题还没清干净：上面的 `her_words`（HER_PROTECTION_STATEMENT）
+            # 与 `revertible_fields`（REVERTIBLE_CATFIELDS）**同样是预设** ——
+            # 它们也是问了我们这台猫娘得到的答案。整改方案见 SETTINGS_COVERAGE.md
+            # 尾部的「问题③」，待掌柜点头后统一做。
+            "her_reason": "",
             "attachments_supported": ATTACHMENTS_SUPPORTED,
             "issue_tracker": ISSUE_TRACKER,
             "memory": await self._memory_status(),
