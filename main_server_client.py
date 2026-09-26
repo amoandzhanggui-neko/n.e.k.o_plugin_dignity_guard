@@ -232,6 +232,8 @@ class MainServerClient:
                 payloads[prefix] = (
                     prune_mirrored_preferences(payload)
                     if prefix == "preferences"
+                    else prune_duplicated_proactive(payload)
+                    if prefix == "proactive_mode"
                     else payload
                 )
         return payloads
@@ -327,6 +329,29 @@ def conversation_slice(payload: Any) -> dict[str, Any] | None:
 #: ``/api/config/preferences`` that mirrors the global conversation settings
 #: instead of describing window geometry.
 GLOBAL_CONVERSATION_SENTINEL = "__global_conversation__"
+
+
+def prune_duplicated_proactive(payload: Any) -> Any:
+    """Drop the ``settings`` block that ``/api/proactive/mode`` echoes back.
+
+    ★ 2026-09-26 加。照着 :func:`prune_mirrored_preferences` 的思路做的 —— 同一件事
+    在两个端点里各存一份，留着就会**一次改动产生两条 dispute，把同一个问题问她两遍**。
+
+    与 preferences 那处的差别（写清楚，免得被当成同一类）：
+      · 那边是**服务端给了明确标记**（``model_path == __global_conversation__``），照着标记筛；
+      · 这边**没有标记**，是靠**实测比对**确认的：``/api/proactive/mode`` 返回的
+        ``settings`` 与 ``/api/proactive/settings`` 的 ``settings`` 内容一致。
+        实测记录在 ``SETTINGS_COVERAGE.md`` 的已知遗留一节。
+
+    剔除的**只有 ``settings``** —— ``mode`` 与 ``available_modes`` 是这个端点独有的，
+    必须保留（"她当前是什么模式"本身就是她要保护的东西之一）。
+
+    ⚠️ 如果哪天上游给 mode 端点加了独立设置（不再与 settings 端点重复），
+    这条 prune 就会**多删东西**。判据：两边内容不再一致时，删掉这个函数即可。
+    """
+    if not isinstance(payload, Mapping):
+        return payload
+    return {k: v for k, v in payload.items() if k != "settings"}
 
 
 def prune_mirrored_preferences(payload: Any) -> Any:
