@@ -255,5 +255,6 @@
   "messages.claimMineUnknown": "那条不在我放回去的名单里。",
   "errors.claimMineFailed": "现在没能放回去，稍后再试。",
   "speech.awayRestored.intro": "我有一阵子没在，这些是那时候被改的。我把它们放回去了：",
-  "speech.awayRestored.outro": "（如果有哪条是你自己改的，说一声，我用 claim_my_change 给你放回你要的样子。）"
+  "speech.awayRestored.outro": "（如果有哪条是你自己改的，说一声，我用 claim_my_change 给你放回你要的样子。）",
+  "ui.state.notYetAgreed": "（她还没同意这条 —— 要不要答应，得她自己说）"
 }

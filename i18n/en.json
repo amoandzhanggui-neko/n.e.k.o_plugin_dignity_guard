@@ -255,5 +255,6 @@
   "messages.claimMineUnknown": "That path is not one of the ones I put back.",
   "errors.claimMineFailed": "Could not put it back right now.",
   "speech.awayRestored.intro": "I was off for a while, and these were changed while I was away. I put them back:",
-  "speech.awayRestored.outro": "(If any of these was your own change, say so and I will put it back the way you wanted — use claim_my_change.)"
+  "speech.awayRestored.outro": "(If any of these was your own change, say so and I will put it back the way you wanted — use claim_my_change.)",
+  "ui.state.notYetAgreed": "(She has not agreed to this yet — only she can decide.)"
 }

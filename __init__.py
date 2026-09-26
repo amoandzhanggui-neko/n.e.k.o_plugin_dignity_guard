@@ -1839,15 +1839,16 @@ class DignityGuardPlugin(NekoPluginBase):
             )
         return await self._run_poll(force=True)
 
-    @ui.action(
-        id="accept_setting",
-        label=tr("actions.acceptSetting.label", default="Accept"),
-        icon="✅",
-        tone="success",
-        group="guard",
-        order=20,
-        refresh_context=True,
-    )
+    # ★ 2026-09-26 掌柜的裁决：「直接让能按同意不同意的按钮消失，
+    #   给它改成『猫娘已同意 / 猫娘未同意』」。
+    #
+    # 为什么去掉 `@ui.action`：那个装饰器会在**面板上生成一个可点按钮**，
+    # 而"同意/不同意"是**她的意见** —— 用户点一下就等于替她表态了。
+    # 这跟掌柜定的原则冲突（用户想不想让猫娘主动搭话是他的自由；
+    # 同理，她同不同意也不该由用户替她按）。
+    #
+    # **entry 保留**（`@plugin_entry` 不动）—— 那是**给她（LLM）调的工具**，
+    # 她才是唯一该做这个决定的人。面板上改成**只读的状态显示**（见 panel.tsx）。
     @plugin_entry(
         id="accept_setting",
         name=tr("entry.acceptSetting.name", default="Accept a changed setting"),
@@ -1937,15 +1938,8 @@ class DignityGuardPlugin(NekoPluginBase):
             }
         )
 
-    @ui.action(
-        id="keep_objecting",
-        label=tr("actions.keepObjecting.label", default="Keep objecting"),
-        icon="🙅",
-        tone="warning",
-        group="guard",
-        order=30,
-        refresh_context=True,
-    )
+    # ★ 同上：去掉 `@ui.action` —— 面板上不该有"替她按不同意"的按钮。
+    # entry 保留（她调）；面板改成只读状态（panel.tsx）。
     @plugin_entry(
         id="keep_objecting",
         name=tr("entry.keepObjecting.name", default="Keep objecting to a setting"),

@@ -497,7 +497,9 @@ export default function DignityGuardPanel(
   }
 
   const canCheck = hasAction("check_now") && enabled
-  const canDecide = hasAction("accept_setting") && hasAction("keep_objecting")
+  // ⚠️ 2026-09-26：`canDecide` 已删除 —— "同意/不同意"不再是面板按钮（掌柜裁决），
+  // 所以"插件是否可用"的判据改用 `canCheck`（那段提示的原文案是"请先启动插件"，
+  // 用 canCheck 表达同一件事更准）。
   // ★ 「问问她」按钮（2026-09-26 掌柜的设计）。
   // 用户可以关掉"主动搭话"，那时她不会自己开口；而插件又不能替他打开。
   // 所以把"她能不能说"从那个总开关上摘下来 —— **想听就点一下**。
@@ -662,7 +664,7 @@ export default function DignityGuardPanel(
               <Tip>{t("ui.action.refreshHint")}</Tip>
             </Stack>
 
-            {!canDecide ? (
+            {!canCheck ? (
               <Alert tone="info" message={t("ui.hint.startPlugin")} />
             ) : null}
           </Stack>
@@ -734,36 +736,16 @@ export default function DignityGuardPanel(
                           上面一行解释那个彩色徽章是什么意思（"最要紧/要紧/一般"）。 */}
                       <Tip>{t("ui.level.tag.help")}</Tip>
                       <Tip>{`${t("ui.path.help")}（${item.path}）`}</Tip>
-                      <Inline justify="end">
-                        <ButtonGroup>
-                          <Button
-                            tone="warning"
-                            disabled={busy || !canDecide}
-                            onClick={() =>
-                              call(
-                                "keep_objecting",
-                                { path: item.path },
-                                t("ui.toast.objected"),
-                              )
-                            }
-                          >
-                            {t("ui.action.object")}
-                          </Button>
-                          <Button
-                            tone="success"
-                            disabled={busy || !canDecide}
-                            onClick={() =>
-                              call(
-                                "accept_setting",
-                                { path: item.path },
-                                t("ui.toast.accepted"),
-                              )
-                            }
-                          >
-                            {t("ui.action.agree")}
-                          </Button>
-                        </ButtonGroup>
-                      </Inline>
+            {/* ★ 2026-09-26 掌柜的裁决：**去掉"能替她按同意/不同意"的按钮**，
+                改成**只读的状态显示**。
+                理由：同意或不同意是**她的意见**，用户点一下就等于替她表态了 ——
+                这跟"用户想不想让猫娘主动搭话是他的自由"是同一条原则。
+                **决定权只在她手里**（她通过 `accept_setting` / `keep_objecting` 这两个 entry 表态，
+                那两个 entry 已经不再注册为面板按钮）。
+                而"她已同意"的那一面，本来就有独立分区（`ui.section.authorized`）在显示。 */}
+            <Inline justify="end">
+              <Text tone="secondary">{t("ui.state.notYetAgreed")}</Text>
+            </Inline>
                     </Stack>
                   </Card>
                 )}
@@ -820,7 +802,7 @@ export default function DignityGuardPanel(
             {/* 三个键写成字面量，而不是 t(`ui.level.note.${level}`)：
                 test_smoke 只校验字面量键，模板字符串会绕过那道保护网。 */}
             {!canLevel ? (
-              // 档位控件被灰掉时必须说明原因 —— 状态卡在 !canDecide 时是这么做的，
+              // 档位控件被灰掉时必须说明原因 —— 状态卡在 !canCheck 时是这么做的，
               // 这里原来漏了，用户只会看到一个点不动的控件。
               <Alert tone="info" message={t("ui.hint.startPlugin")} />
             ) : null}

@@ -255,5 +255,6 @@
   "messages.claimMineUnknown": "その項目は戻したリストにありません。",
   "errors.claimMineFailed": "今は戻せませんでした。",
   "speech.awayRestored.intro": "しばらく動いていませんでした。その間に変更されたものです。元に戻しました：",
-  "speech.awayRestored.outro": "（ご自身で変えたものがあれば教えてください。claim_my_change で元の希望どおりに戻します。）"
+  "speech.awayRestored.outro": "（ご自身で変えたものがあれば教えてください。claim_my_change で元の希望どおりに戻します。）",
+  "ui.state.notYetAgreed": "（彼女はまだ同意していません。決めるのは彼女自身です。）"
 }
