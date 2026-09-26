@@ -321,3 +321,39 @@
 | `preferences.2.textGuardMaxLength` | 规则 | L3 | `preferences.*` |
 | `preferences.2.userLanguage` | 规则 | L3 | `preferences.*` |
 | `preferences.2.voiceInputResourceOptimizationEnabled` | 规则 | L3 | `preferences.*` |
+
+---
+
+## ★ 2026-09-26 补记：A / B 类已纳入监控
+
+原先这份对照最刺眼的结论是 **A 类那 28 项（`proactive`）完全没被监控** ——
+插件自己的规则把它定为 L1，可它读的数据覆盖不到。**已修**：
+
+`SNAPSHOT_SOURCES` 从 **4 个源 → 9 个源**：
+
+| 新增源 | 端点 | 类 | 快照条数 | 分级 |
+|---|---|---|---|---|
+| `proactive` | `/api/proactive/settings` | A | 12 | **全 L1** |
+| `proactive_mode` | `/api/proactive/mode` | A | 14 | **全 L1** |
+| `agent_flags` | `/api/agent/flags` | B | 10 | L2 |
+| `user_language` | `/api/config/user_language` | B | 1 | L3 |
+| `steam_language` | `/api/config/steam_language` | B | 5 | L3 |
+
+配套在 `SENSITIVITY_RULES` 加了 5 条**整源前缀**规则（不用 `*_enabled` 那种段内通配 ——
+整源匹配是明确支持的，宁可范围略宽也不要"看着像匹配其实没匹配上"）。
+
+**实测**：9/9 源拉取成功，快照 233 条，上述路径**全部命中分级规则、无一条落兜底**。
+
+### 有意**没**纳入的（试调过，确认是状态而非设置）
+
+`agent/state`（与 flags 重复且含 revision/server_online）、`avatar-tools`（items 空、limits 常量）、
+`seven-day-tutorial/state`（教程进度）、`persona-onboarding-state`（引导进度）、
+`current_catgirl` / `current_live2d_model`（运行时状态）、`icebreaker/route/state`（运行时状态）。
+—— 这些进来只会制造假信号。
+
+### ⚠️ 已知遗留
+
+`proactive.settings.*` 与 `proactive_mode.settings.*` **内容重叠**（同一批开关，两个路径）。
+后果：改一个开关可能产生**两条** dispute。
+**取舍**：宁可多一条重复，也不漏掉 `proactive_mode.mode`（模式选择也是她的事）。
+日后若要消重，可参考 `prune_mirrored_preferences` 的做法。

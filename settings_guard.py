@@ -345,6 +345,23 @@ SENSITIVITY_RULES: tuple[tuple[str, str], ...] = (
     # the question to L3 plumbing.
     ("preferences.*.proactive*", LEVEL_L1),
     ("preferences.*.model_path", LEVEL_L2),
+    # ★ 2026-09-26：把「她的自主权」真正纳入快照 —— 此前它在守卫视野之外。
+    #
+    # 来源是 SETTINGS_COVERAGE.md 里标为 A 类的那两个端点：
+    #   GET /api/proactive/settings → {settings: {proactiveChatEnabled, ...}}
+    #   GET /api/proactive/mode     → {mode: "custom"|"off"|"normal"|"focus"|"frequent", settings: {...}}
+    # 它们与 `preferences.*.proactive*` 是同一件事（"她能不能主动开口"），
+    # 所以同样按 L1 处理 —— 这一档从来不是"要紧程度"的问题，是"她的人格与自主权"。
+    #
+    # ⚠️ 用整源前缀（不是 `*_enabled` 那种段内通配）：段内 `*` 的匹配行为要另外确认，
+    #    而整源匹配是明确支持的，宁可范围略宽也不要"看着像匹配其实没匹配上"。
+    ("proactive", LEVEL_L1),
+    ("proactive_mode", LEVEL_L1),
+    # 同样是 A 类：她的语言（她说话用哪种语言，属于她自己的表达）。
+    ("user_language", LEVEL_L3),
+    ("steam_language", LEVEL_L3),
+    # B 类：影响她行为的开关（agent 能用哪些能力）。该看，但不到"人格"那一档。
+    ("agent_flags", LEVEL_L2),
     # Everything else in this list is display/audio plumbing; record it quietly.
     # Kept last: a less specific rule must never outrank the ones above.
     ("preferences.*", LEVEL_L3),

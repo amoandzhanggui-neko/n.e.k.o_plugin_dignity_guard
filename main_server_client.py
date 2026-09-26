@@ -66,11 +66,28 @@ CHARACTERS_PATH = "/api/characters"
 #: Endpoints that together describe "her settings", and the prefix each one is
 #: flattened under. ``conversation-settings`` is handled separately because it
 #: is also the cheap change judge.
+#:
+#: ★ 2026-09-26 扩充：原先只有 4 个源，实测（见 SETTINGS_COVERAGE.md）发现
+#:   插件自己的规则把 ``proactive*`` 定为 **L1（她的自主权）**，可它读的数据
+#:   覆盖不到 ``/api/proactive/settings`` 与 ``/api/proactive/mode`` ——
+#:   **最该盯的东西恰好在视野之外**。这里把那两个端点补进来。
+#:
+#: 只补"用户能改的设置"，**不补状态/统计**（试调过：``agent/state`` 与 flags 重复且含
+#: revision/server_online，``avatar-tools`` 的 items 是空的、limits 是常量，
+#: ``seven-day-tutorial/state`` 与 ``persona-onboarding-state`` 是进度，
+#: ``icebreaker/route/state`` 是运行时状态 —— 这些进来只会制造假信号）。
 SNAPSHOT_SOURCES: tuple[tuple[str, str], ...] = (
     ("characters", "/api/characters"),
     ("page_config", "/api/config/page_config"),
     ("core_api", "/api/config/core_api"),
     ("preferences", "/api/config/preferences"),
+    # ★ A 类：她的自主权（能不能主动开口、以什么模式）
+    ("proactive", "/api/proactive/settings"),
+    ("proactive_mode", "/api/proactive/mode"),
+    # ★ B 类：影响她行为的开关 / 语言
+    ("agent_flags", "/api/agent/flags"),
+    ("user_language", USER_LANGUAGE_PATH),
+    ("steam_language", "/api/config/steam_language"),
 )
 
 #: The revision only covers conversation settings, so it cannot see an avatar
