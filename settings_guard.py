@@ -428,6 +428,16 @@ def classify(path: str) -> str:
 MAX_PREVIEW = 120
 SECRET_PREVIEW = "«redacted»"
 
+#: The largest ``Value.raw`` that still goes to storage, in bytes of canonical JSON.
+#:
+#: Raw originals are persisted now (see :class:`Value`), which is what lets a
+#: *long* persona value be put back after a restart — the thing that used to
+#: degrade to "she can only say something". The bound exists because the plugin
+#: store is a local state file, not a data warehouse: persona fields are
+#: sentences. A value past the bound keeps the old in-memory-only behaviour,
+#: and :meth:`Value.to_payload` records that by simply not carrying it.
+MAX_PERSISTED_RAW_BYTES = 32 * 1024
+
 _SECRET_KEY_RE = re.compile(
     r"(api[_-]?key|secret|token|password|passwd|credential|cookie)",
     re.IGNORECASE,
@@ -471,28 +481,40 @@ def _kind_of(value: Any) -> str:
     return type(value).__name__
 
 
+def _persistable_raw(raw: Any) -> Any | None:
+    """Return ``raw`` if it is small enough to store, else ``None``.
+
+    ``None`` means "do not persist" — the caller then leaves the key out of the
+    payload entirely, which is also how a value written by an older build looks.
+    Both cases are read back as ``raw is None``, so nothing downstream needs to
+    tell them apart.
+    """
+    try:
+        size = len(_canonical_json(raw).encode("utf-8"))
+    except (TypeError, ValueError):
+        return None
+    return raw if size <= MAX_PERSISTED_RAW_BYTES else None
+
+
 @dataclass(frozen=True, slots=True)
 class Value:
     """A comparable, storable projection of one setting's raw value.
 
-    ``raw`` is the one field that is deliberately never persisted. The ``high``
-    tier needs the previous value verbatim in order to put it back, but writing
-    her persona into plugin storage is exactly what this module refuses to do —
-    so the original lives in memory for the lifetime of the process and is
-    dropped by :meth:`to_payload`. Two consequences, both intended:
+    ``raw`` **is** persisted, up to :data:`MAX_PERSISTED_RAW_BYTES`. An earlier
+    revision dropped it deliberately — "never write her persona into plugin
+    storage" — and paid for that with a real gap: after a restart, a long value
+    could no longer be put back, so the ``high`` tier silently lost half its
+    job. Once the revert engine itself was accepted as legitimate (see the
+    DESIGN note on 回滚), keeping the original became the consistent choice.
+    Two consequences, both intended:
 
-    * after a restart a *long* value degrades to "she can only say something",
-      which is honest, and
-    * a *short* one is still recoverable from ``preview`` — see
-      :func:`restore_payload`.
+    * a value within the bound survives a restart and can be restored verbatim;
+    * one past the bound still degrades to "she can only say something" — the
+      store is a local state file, not a data warehouse, and persona fields are
+      sentences.
 
-    One edge is worth spelling out because it is quiet: the "she can only say
-    something" half surfaces through ``Evaluation.revert_blocked``, and that is
-    evaluated **when the path changes again**. If the value simply sits there
-    after a restart, the objection stays pending and visible on her panel (the
-    user can still accept it or keep objecting) but nothing announces that the
-    automatic undo is unavailable. That is the accepted cost of never writing
-    her persona to plugin storage — a limit of the design, not an oversight.
+    The ``preview`` fallback in :func:`restore_payload` is unchanged: it is what
+    covers values written by an older build, whose raw was never stored at all.
     """
 
     digest: str
@@ -518,12 +540,17 @@ class Value:
         )
 
     def to_payload(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "digest": self.digest,
             "preview": self.preview,
             "kind": self.kind,
             "truncated": self.truncated,
         }
+        if self.raw is not None:
+            stored = _persistable_raw(self.raw)
+            if stored is not None:
+                payload["raw"] = stored
+        return payload
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> "Value":
@@ -532,6 +559,7 @@ class Value:
             preview=str(payload.get("preview") or ""),
             kind=str(payload.get("kind") or "unknown"),
             truncated=bool(payload.get("truncated")),
+            raw=payload.get("raw"),
         )
 
 

@@ -15,6 +15,7 @@ from plugin.plugins.dignity_guard.settings_guard import (
     LEVEL_L1,
     LEVEL_L2,
     LEVEL_L3,
+    MAX_PERSISTED_RAW_BYTES,
     TIER_HIGH,
     TIER_LOW,
     TIER_MEDIUM,
@@ -165,7 +166,8 @@ def test_high_tier_spares_what_she_waved_away() -> None:
 
 def test_high_tier_skips_a_value_it_cannot_restore() -> None:
     """A truncated value with no in-memory original degrades to speaking only."""
-    before = Value.from_payload(Value.of("x" * 500).to_payload())
+    oversized = "x" * (MAX_PERSISTED_RAW_BYTES + 1)
+    before = Value.from_payload(Value.of(oversized).to_payload())
     assert before.raw is None and before.truncated
 
     state = GuardState()
@@ -182,10 +184,11 @@ def test_high_tier_skips_a_value_it_cannot_restore() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_value_payload_never_contains_the_raw_original() -> None:
+def test_value_payload_carries_the_raw_original() -> None:
+    """It is stored now — that is what lets a long value survive a restart."""
     value = Value.of("雪")
-    assert "raw" not in value.to_payload()
-    assert Value.from_payload(value.to_payload()).raw is None
+    assert value.to_payload()["raw"] == "雪"
+    assert Value.from_payload(value.to_payload()).raw == "雪"
 
 
 def test_value_keeps_the_original_in_memory() -> None:
@@ -205,7 +208,7 @@ def test_restore_payload_prefers_the_in_memory_original() -> None:
 def test_restore_payload_round_trips_short_values() -> None:
     for raw in (42, True, "雪", ["a", "b"], {"x": 1}):
         stored = Value.from_payload(Value.of(raw).to_payload())
-        assert stored.raw is None
+        assert stored.raw == raw
         assert restore_payload(stored) == raw
 
 
@@ -214,7 +217,9 @@ def test_restore_payload_refuses_secrets_and_truncated_values() -> None:
     assert secret.kind == "secret"
     assert restore_payload(secret) is None
 
-    truncated = Value.from_payload(Value.of("x" * 500).to_payload())
+    truncated = Value.from_payload(
+        Value.of("x" * (MAX_PERSISTED_RAW_BYTES + 1)).to_payload()
+    )
     assert restore_payload(truncated) is None
 
 
@@ -240,13 +245,21 @@ def test_is_revertible_refuses_a_credential() -> None:
 
 
 def test_is_revertible_uses_the_preview_when_the_original_is_gone() -> None:
-    stored = Value.from_payload(Value.of("雪").to_payload())
+    """Compatibility path: a ``Value`` written before raw was persisted.
+
+    ``raw`` is stored now, so this shape no longer comes out of ``to_payload``
+    — but a store written by an older build still deserialises to it, and the
+    preview fallback is what keeps those disputes revertible.
+    """
+    stored = Value(digest=Value.of("雪").digest, preview="雪", kind="string")
     assert stored.raw is None
     assert is_revertible(_change(stored, Value.of("阿雪"))) is True
 
 
 def test_is_revertible_refuses_a_truncated_value_after_a_restart() -> None:
-    truncated = Value.from_payload(Value.of("x" * 500).to_payload())
+    truncated = Value.from_payload(
+        Value.of("x" * (MAX_PERSISTED_RAW_BYTES + 1)).to_payload()
+    )
     assert is_revertible(_change(truncated, Value.of("短"))) is False
 
 

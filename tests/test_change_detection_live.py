@@ -19,6 +19,7 @@ import json
 from plugin.plugins.dignity_guard.main_server_client import (
     MainServerClient,
     SettingsWatcher,
+    prune_mirrored_preferences,
 )
 from plugin.plugins.dignity_guard.settings_guard import (
     LEVEL_L1,
@@ -26,6 +27,8 @@ from plugin.plugins.dignity_guard.settings_guard import (
     LEVEL_L3,
     SECRET_PREVIEW,
     GuardState,
+    classify,
+    flatten,
 )
 
 #: Generous on purpose, and deliberately *not* the production default.
@@ -221,3 +224,44 @@ def test_engine_metadata_is_not_mistaken_for_a_setting(main_server) -> None:
     evaluation = asyncio.run(scenario())
 
     assert evaluation.changes == []
+
+
+def test_only_one_endpoint_can_carry_the_proactive_flags() -> None:
+    """Autonomy has exactly one source, and that is checked rather than claimed.
+
+    ``SENSITIVITY_RULES`` carries two L1 rules whose names look like they cover
+    the same switch — ``conversation.settings.proactive*`` and
+    ``preferences.*.proactive*``. On real data only the first can ever fire,
+    because ``prune_mirrored_preferences`` drops the mirrored entry the second
+    one would have matched. That is *why* the pair is not a duplicate
+    registration, and it is exactly the kind of reason that quietly stops being
+    true.
+
+    So it is asserted here instead of described in a comment. If someone later
+    stops pruning the mirror — or the server moves the flags somewhere that
+    survives the prune — this test fails, and that failure is the signal to
+    decide what the single source should be. The alternative (writing a
+    priority rule now, for a conflict that cannot currently happen) would hide
+    the change instead of surfacing it, and would leave behind a rule nobody can
+    explain later.
+    """
+    payload = [
+        {"position": [10, 20]},
+        {"position": [30, 40]},
+        {"model_path": "__global_conversation__", "proactiveChatEnabled": True},
+    ]
+
+    pruned = prune_mirrored_preferences(payload)
+    snapshot = flatten(pruned, "preferences")
+
+    assert not [path for path in snapshot if "proactive" in path], (
+        "a proactive flag survived pruning — autonomy now has two possible "
+        "sources, so two disputes can be raised for one change"
+    )
+    # And the surviving half is still classified where we expect it.
+    assert flatten(payload, "preferences") != snapshot, "the mirror was not dropped"
+
+
+def test_the_conversation_endpoint_still_carries_them() -> None:
+    """The one surviving source keeps its L1 rule."""
+    assert classify("conversation.settings.proactiveChatEnabled") == LEVEL_L1

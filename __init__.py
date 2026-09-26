@@ -980,7 +980,11 @@ class DignityGuardPlugin(NekoPluginBase):
             return
 
         try:
-            snapshot = await asyncio.to_thread(scan_memory, root)
+            # 这一趟是**低频**的（MEMORY_CHECK_SECONDS），所以顺便算内容哈希。
+            # size + mtime 读不出"同样的字节数、同样秒级的 mtime、内容却变了"，
+            # 只有 digest 能。20 秒一轮的 poll 路径不这么做 —— 那才是不该每轮
+            # 把整个目录读一遍的地方；这里 300 秒一次，读得起。
+            snapshot = await asyncio.to_thread(scan_memory, root, with_digest=True)
         except OSError as exc:
             self._memory_error = "memory_unreadable"
             self._health.record("memory_unreadable")
@@ -2258,7 +2262,11 @@ class DignityGuardPlugin(NekoPluginBase):
             # reporting the restored files as brand-new changes — which would
             # also schedule a backup for a directory that never really moved.
             try:
-                self._memory_snapshot = await asyncio.to_thread(scan_memory, root)
+                # 基线也带上 digest：_looks_changed 只在**两边都有**哈希时才比内容，
+                # 一边有一边没有就等于白算。
+                self._memory_snapshot = await asyncio.to_thread(
+                    scan_memory, root, with_digest=True
+                )
             except OSError:
                 self._memory_snapshot = {}
 

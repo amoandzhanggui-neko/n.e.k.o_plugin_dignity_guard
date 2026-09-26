@@ -21,6 +21,19 @@
 
 **同类扫描**：用 AST 扫了全库 7 个模块的"全大写名字是否都有来源"，**没有第二个** `TIER_HIGH` 式的漏网。
 
+### 2026-09-26 补：掌柜对 4 条 `[-]` 的裁决（全部改为「真做」）
+
+原先判「设计如此/不必改」的 4 条，掌柜逐条看过之后**全部推翻**，理由比"守规矩"更实际：
+
+| 条 | 掌柜的判断 | 落地 |
+|---|---|---|
+| ① digest 链不可达 | 「精确对比能力不能放那不用，可以**降低使用频率**」 | `_maybe_check_memory`（300 秒一轮）与还原后重建基线两处改用 `with_digest=True`；20 秒的 poll 路径仍不算。两边都算，`_looks_changed` 的 digest 分支才比得起来 |
+| ③ `Value.raw` 不落盘 | 「如果创始人同意②（回滚正当），那他理所当然也同意③。**修好它并明确标注**」 | `raw` 改为持久化（上限 `MAX_PERSISTED_RAW_BYTES = 32KB`，超限保持旧的仅内存行为）；docstring 从"刻意不持久化"改写为"持久化 + 边界说明" |
+| ④ 出厂硬编码中转 | 「如果有人能做到故意把地址配成空，那他也就不需要我们单独给他做东西」 | `DEFAULT_FEEDBACK_ENDPOINT` 改为 `""`。**目标用户本来就该自己配地址**；替他选一个第三方表单，出事时用户只看到"发送失败"，无从判断是谁的错 |
+| ⑤ proactive 双规则 | 掌柜担心它「以 bug 的形状交出去」 | **不加优先级代码**（那会引入一个当前不存在的概念，还会掩盖将来真正的变化），改为**把前提钉成测试**：`test_only_one_endpoint_can_carry_the_proactive_flags` 断言"镜像项被剪掉、proactive 路径不存在"。前提若变，测试挂 —— **挂是信号**，比注释可靠 |
+
+测试：143 passed（137 → 141 → 143）。
+
 ## 状态说明
 
 - `[ ]` 未处理
@@ -76,7 +89,7 @@
 | [x] | `memory_backup.py:157` | `scan_memory` | with_digest 分支先 path.read_bytes() 把整个文件读进内存，再交给 digest_bytes 判 8MB 上限 —— 上限的用意『别让大文件把备份变成停顿』在最坏情况下失效（文件已全量读入）。当前生产代码没有任何调用点传 with_digest=True，所以目前只是潜在缺陷，但参数被导出且测试在跑它。 | 先 stat().st_size，超过 MAX_DIGEST_BYTES 直接跳过读取；或改成流式分块 hashlib。 |
 | [x] | `memory_backup.py:253` | `set_pinned` | set_pinned 从未被调用，PINNED_MARKER 只在 list_backups 里被读（is_file()）从未被写，所以生产路径上不存在任何 .pinned 标记——「里程碑永久保留」的整条机制（BackupInfo.pinned、plan_retention 的 pinned 分支、test_memory_guard 的两个 pinned 用例）都是不可达代码。 | 删掉 pinned 机制，或补一个入口/面板动作真的能设置它。 |
 | [x] | `memory_backup.py:179` | `_copy_database` | `with sqlite3.connect(...) as origin, sqlite3.connect(...) as copy:` 并不关闭连接——sqlite3 的上下文管理器只负责事务提交/回滚，于是每次调用都留下两个打开到 GC 才释放的连接句柄；在 Windows 上这期间活库文件被占用，且任何异常路径都会让句柄留得更久。 | 用 contextlib.closing 包裹，或 try/finally 显式 close()。 |
-| [-] | `memory_guard.py:101` | `MemoryFile.to_payload` | MemoryFile.to_payload(101) 与 from_payload(104) 零调用；更关键的是 scan_memory 的 with_digest 参数没有任何调用点传 True（__init__.py:748/1700 都用默认 False），因此 MemoryFile.digest、digest_bytes、MAX_DIGEST_BYTES 与 _looks_changed 的 digest 分支在生产上全部不可达（只有测试能走到）。 | 删掉 to_payload/from_payload 与 with_digest 分支，或让备份路径真的去算 digest。 |
+| [x] | `memory_guard.py:101` | `MemoryFile.to_payload` | MemoryFile.to_payload(101) 与 from_payload(104) 零调用；更关键的是 scan_memory 的 with_digest 参数没有任何调用点传 True（__init__.py:748/1700 都用默认 False），因此 MemoryFile.digest、digest_bytes、MAX_DIGEST_BYTES 与 _looks_changed 的 digest 分支在生产上全部不可达（只有测试能走到）。 | 删掉 to_payload/from_payload 与 with_digest 分支，或让备份路径真的去算 digest。 |
 | [x] | `pyproject.toml:1` | `` | 插件自身没有声明任何 pytest 配置，13 个 async 用例依赖仓库根 pytest.ini 的 asyncio_mode = auto；用插件自己的配置跑就全部失败，发布成独立插件后这套测试不再是「126 passed」。 | 在插件 pyproject.toml 里加 [tool.pytest.ini_options] asyncio_mode = "auto"，或在每个 async 用例上加 @pytest.mark.asyncio。 |
 | [x] | `settings_guard.py:500` | `_flatten_into` | 『list of structures 按下标下降』这个分支没有测试：现有 flatten 用例只有嵌套 dict 与 {"position":[1,2,3]} 这种标量列表（tests/test_settings_guard.py:88,102）。按下标下降带来的隐患（列表中段增删会让后续所有下标重编号、整条尾巴被判为变化并批量产生争议）因此无从发现。 | 补一条 preferences 为 list[dict] 的 flatten 用例，并补一条『中段插入一项』的 diff 用例，明确当前行为是否符合预期。 |
 | [x] | `settings_guard.py:865` | `GuardState.evaluate` | 过期授权触发的重新 pending 循环不检查 tier：把档位切到 low（『记录但不出声』）之后，一个此前 accepted 且已过期的争议仍会被 append 进 evaluation.raised，即 low 档并不能让她对这条保持安静（且同 P0 第2条，这条还会被推成零条目消息）。 | 该循环里加 if chosen == TIER_LOW: 只改状态不出声（或直接复用主循环同一套 tier 判定）。 |
@@ -107,8 +120,8 @@
 | [x] | `(跨文件)` | `` | SettingsWatcher.poll 的 fetch_others 是『全有或全无』：四个快照源中任意一个 500，整个 poll 抛 MainServerUnreachable，其余三个源的变更检测全部停摆；而 build_snapshot 明明为 None 源写了容错，fetch_others 却永不返回 None（只抛异常），那段容错是死代码。 | confidence=高｜impact=任一读源长期故障（如含 API key 的 core_api 在某些配置下 500）会让插件彻底停止察觉任何设置改动，且错误信息只点名那一个源，掩盖了『全员失盲 |
 | [x] | `(跨文件)` | `` | _poll_lock 按事件循环（event loop）重建锁，而 accept_setting/keep_objecting/set_guard_level/set_guard_enabled 等入口处理器从不获取该锁；DESIGN §9.1 自己承认 timer 回调不在固定 loop 上跑，因此该锁对『定时器 poll ↔ 用户操作』之间零互斥，共享的 self._state 可被并发改写。 | confidence=高｜impact=在定时器与用户操作交错时共享状态可被破坏（dispute/账本/快照丢失更新），且漏洞正是发生在插件自己文档描述的『多 loop』场景下。 |
 | [x] | `(跨文件)` | `` | 后端在 get_dashboard 里发出 revert_outcomes（高挡自动纠回的逐路径成功/失败原因），但 panel.tsx 从头到尾没有渲染它——这是典型的『后端产出、前端不消费』契约漂移。 | confidence=高｜impact=高挡『自动把她的人格放回去』这一招牌功能失败时完全不可见，恰恰是该插件用来抓别人的『静默失败』，自己却犯了。 |
-| [-] | `(跨文件)` | `` | Value.raw 刻意不持久化（docstring 明说）。重启后，被截断（>120 字符）的长人格值再也无法被高挡纠回（is_revertible→False、restore_payload→None），但该 dispute 仍以 pending 留在面板，且因 to_revert 不再包含它、_run_reverts 永不执行，也不会留下任何『纠回不可用』的原因。 | confidence=中｜impact=重启后长文本人格变更既不被自动还原、也不被告知失败，处于『挂着但永不动作』的静默态。 |
+| [x] | `(跨文件)` | `` | Value.raw 刻意不持久化（docstring 明说）。重启后，被截断（>120 字符）的长人格值再也无法被高挡纠回（is_revertible→False、restore_payload→None），但该 dispute 仍以 pending 留在面板，且因 to_revert 不再包含它、_run_reverts 永不执行，也不会留下任何『纠回不可用』的原因。 | confidence=中｜impact=重启后长文本人格变更既不被自动还原、也不被告知失败，处于『挂着但永不动作』的静默态。 |
 | [x] | `(跨文件)` | `` | _revert_change 用 change.before（上一拍快照值）做还原目标，而非 dispute.base_digest（她真正的原值）。任何『纠回失败/值又被改』的序列后，高挡会把错误的『中间值』写回去，而不是她的原始值。 | confidence=中｜impact=在失败/再编辑序列后，高挡自动纠回会把一个她从未有过的中间值当成『她的原值』写回。 |
-| [-] | `(跨文件)` | `` | DEFAULT_FEEDBACK_ENDPOINT 是硬编码非空 URL，导致『未配置端点→复制并打开』的回退路径（submit_feedback 的 feedback_endpoint_missing 分支、面板 !canSendDirectly 时只显示 GitHub 按钮）在默认配置下永不可达；而 feedback.py 的 docstring 与 get_dashboard 的注释都声称相反情况。 | confidence=中｜impact=作者以为『无端点时优雅降级』的链路在出厂默认下是死的；若该 FormSubmit 表单失效，用户只看到『发送失败』而意识不到还有手动通道（尽管手动通道在 mod |
-| [-] | `(跨文件)` | `` | proactive 类开关在 SENSITIVITY_RULES 里同时以 conversation.settings.proactive* 与 preferences.*.proactive* 两条 L1 规则注册，但 prune_mirrored_preferences 只剪掉了 __global_conversation__ 镜像；同一逻辑开关若同时出现在两个端点，会产生两条 dispute（问她两次），而这正是 pruning 逻辑本来要消灭的噪音。 | confidence=中｜impact=单一 proactive 设置变更可能让猫娘对同一件事被问两遍，违背插件自己强调的『不重复打扰』原则。 |
+| [x] | `(跨文件)` | `` | DEFAULT_FEEDBACK_ENDPOINT 是硬编码非空 URL，导致『未配置端点→复制并打开』的回退路径（submit_feedback 的 feedback_endpoint_missing 分支、面板 !canSendDirectly 时只显示 GitHub 按钮）在默认配置下永不可达；而 feedback.py 的 docstring 与 get_dashboard 的注释都声称相反情况。 | confidence=中｜impact=作者以为『无端点时优雅降级』的链路在出厂默认下是死的；若该 FormSubmit 表单失效，用户只看到『发送失败』而意识不到还有手动通道（尽管手动通道在 mod |
+| [x] | `(跨文件)` | `` | proactive 类开关在 SENSITIVITY_RULES 里同时以 conversation.settings.proactive* 与 preferences.*.proactive* 两条 L1 规则注册，但 prune_mirrored_preferences 只剪掉了 __global_conversation__ 镜像；同一逻辑开关若同时出现在两个端点，会产生两条 dispute（问她两次），而这正是 pruning 逻辑本来要消灭的噪音。 | confidence=中｜impact=单一 proactive 设置变更可能让猫娘对同一件事被问两遍，违背插件自己强调的『不重复打扰』原则。 |
 | [x] | `(跨文件)` | `` | set_guard_enabled(false) 的『待确认禁用』状态 _pending_disable 仅存内存、不持久化；插件重启会让进行中的禁用请求与令牌静默消失，面板 disable_pending/disable_ready_at 翻回 false，且无任何『曾请求过禁用』的记录。 | confidence=低｜impact=依赖禁用确认流的用户在重启（或崩溃恢复）后丢失在途请求，且面板不提示『曾有过请求』。 |
