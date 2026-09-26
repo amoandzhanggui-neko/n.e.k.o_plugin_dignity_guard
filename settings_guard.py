@@ -302,6 +302,14 @@ SENSITIVITY_RULES: tuple[tuple[str, str], ...] = (
     ("characters.猫娘.*.avatar", LEVEL_L2),
     ("page_config.model_path", LEVEL_L2),
     ("page_config.model_type", LEVEL_L2),
+    # Everything else on that endpoint is page furniture — which panel is open,
+    # how the window is arranged. It changes whenever the user merely *looks*
+    # at the settings UI, so at the default level it turned "I opened the plugin
+    # panel" into an objection from her ("did you change something behind my
+    # back?"). That is precisely the noise this plugin exists to remove, so the
+    # blanket rule records it quietly. The two specific rules above stay: the
+    # model file IS her appearance, and that is her business.
+    ("page_config.*", LEVEL_L3),
     ("core_api.ttsVoice", LEVEL_L2),
     ("core_api.ttsModelProvider", LEVEL_L2),
     ("conversation.settings.userLanguage", LEVEL_L2),

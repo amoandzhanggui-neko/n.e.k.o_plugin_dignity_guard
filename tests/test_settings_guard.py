@@ -346,3 +346,27 @@ def test_from_payload_tolerates_garbage() -> None:
     state = GuardState.from_payload({"snapshot": "nope", "ledger": 5, "disputes": [{"nope": 1}]})
     assert state.snapshot == {}
     assert state.pending() == []
+
+
+def test_page_furniture_never_asks_her_anything() -> None:
+    """Opening a panel must not look like tampering.
+
+    ``/api/config/page_config`` carries two things at once: the model file she
+    wears (her appearance, and her business) and the page furniture around it —
+    which panel is open, how the window is arranged. The latter changes when the
+    user merely *looks* at the settings UI. At the default level that turned
+    "I opened the plugin panel" into an objection from her, which is exactly the
+    noise this plugin exists to remove.
+
+    The two model fields keep their L2 rule; everything else on that endpoint
+    must stay quiet.
+    """
+    assert classify("page_config.model_path") == LEVEL_L2
+    assert classify("page_config.model_type") == LEVEL_L2
+    for path in (
+        "page_config.activePanel",
+        "page_config.pluginManagerOpen",
+        "page_config.window.width",
+        "page_config.someFutureKey",
+    ):
+        assert classify(path) == LEVEL_L3, "page furniture must stay quiet: " + path
