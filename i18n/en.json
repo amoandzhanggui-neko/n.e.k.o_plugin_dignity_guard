@@ -247,5 +247,7 @@
   "entry.askHer.name": "Ask her what she thinks",
   "entry.askHer.description": "Let her say, in her own words, what she thinks about the settings she has not accepted. Use when the user wants to hear her; it works even when proactive chat is off, because the user is the one asking.",
   "messages.askHerNothing": "She has nothing to object to right now.",
-  "ui.toast.askedHer": "Asked her — give her a moment."
+  "ui.toast.askedHer": "Asked her — give her a moment.",
+  "ui.away.notice": "⚠️ She was not running for about {minutes} minute(s) — {count} setting(s) were changed during that gap. Those are the ones listed below.",
+  "ui.away.none": "(Nothing was changed while she was off.)"
 }

@@ -247,5 +247,7 @@
   "entry.askHer.name": "问问她怎么想",
   "entry.askHer.description": "让她用自己的语气，说说对那些她还没认可的设置的看法。用户想听她本人说的时候用；即使用户关掉了主动搭话也能用，因为这次是用户自己要听。",
   "messages.askHerNothing": "她现在没有什么不同意见。",
-  "ui.toast.askedHer": "已请她开口，稍等片刻。"
+  "ui.toast.askedHer": "已请她开口，稍等片刻。",
+  "ui.away.notice": "⚠️ 她有一段时间没在（约 {minutes} 分钟）—— 那期间有 {count} 项设置被改过。下表里就是这些改动。",
+  "ui.away.none": "（她被关着的那段时间里，没有设置被改动。）"
 }

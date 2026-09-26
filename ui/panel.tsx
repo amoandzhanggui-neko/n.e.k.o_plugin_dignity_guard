@@ -102,6 +102,12 @@ type DashboardState = {
   poll_seconds?: number
   full_rescan_seconds?: number
   last_poll_at?: number | null
+  //: ★ 2026-09-26：她"缺席"了多久（秒），以及缺席期间被改的项数。
+  //: 用户能直接把插件禁用 —— 那段时间它真没在跑；但"上次活着是什么时候"记着，
+  //: 所以下次启动能如实报出来。见后端 `_note_away_gap`。
+  //: null = 正常重启（没缺多久）。
+  away_seconds?: number | null
+  away_change_count?: number | null
   last_error?: string
   revision?: number | null
   disable_pending?: boolean
@@ -593,6 +599,25 @@ export default function DignityGuardPanel(
               />
             </Inline>
 
+            {/* ★ 2026-09-26：如实报出"我缺席过"。
+                用户能把插件直接禁用 —— 那段时间它真没在跑，谁改了什么它看不见。
+                但"上次活着是什么时候"是记着的，所以这里能报出缺席时长；
+                缺席期间被改的项，恰好就是这次启动后首次轮询发现的那些。
+                ⚠️ 这是**如实报告**，不是"防绕过" —— 插件被禁用时它真的无能为力，
+                能保证的只有"他做过的事会被看见"。 */}
+            {state.away_seconds ? (
+              <Alert
+                tone="warning"
+                message={
+                  (state.away_change_count ?? 0) > 0
+                    ? t("ui.away.notice", {
+                        minutes: String(Math.max(1, Math.round(state.away_seconds / 60))),
+                        count: String(state.away_change_count ?? 0),
+                      })
+                    : t("ui.away.none")
+                }
+              />
+            ) : null}
             {disableCount > 0 ? (
               <Inline align="center" gap={8} wrap>
                 <StatusBadge tone="warning" label={t("ui.history.label")} />

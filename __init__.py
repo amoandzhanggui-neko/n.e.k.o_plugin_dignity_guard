@@ -367,6 +367,21 @@ class DignityGuardPlugin(NekoPluginBase):
         self._off_since: float | None = None
         self._disable_count = 0
         self._last_off_seconds: float | None = None
+        # ★ 2026-09-26 掌柜发现的绕过口子：用户可以直接在插件管理界面**把插件禁用** ——
+        # 那一刻起插件完全不运行，守卫形同虚设；他随便改完再启用，插件也看不出发生过什么。
+        #
+        # 能做的修补：**每次都记下"我最后一次活着是什么时候"**，下次启动时算出**缺席多久**。
+        # 缺席期间发生的改动，天然就是"这次启动后第一次轮询发现的全部改动" ——
+        # 不必给 Dispute 加字段，只要把"我离开过 N 分钟、期间有 M 项被改"如实报出来。
+        #
+        # ⚠️ 这是**如实报告**，不是**防绕过** —— 插件被禁用的那段时间它真的什么都做不了。
+        # 任何"防止用户禁用插件"的设计都既做不到、也不该做（那是他的机器、他的自由）。
+        # 我们能保证的只有一件事：**他做过的事会被看见**。
+        self._last_seen_at: float | None = None
+        #: 本次启动算出的缺席时长（秒）。None = 正常重启（没缺多久）。
+        self._away_seconds: float | None = None
+        #: 本次启动第一次轮询发现的改动数 —— 缺席期间被改的就是这些。
+        self._away_change_count: int | None = None
         #: Outcome of the most recent revert attempt, per path. ``""`` means the
         #: value went back; anything else is a reason code the panel translates.
         self._revert_outcomes: dict[str, str] = {}
@@ -410,6 +425,11 @@ class DignityGuardPlugin(NekoPluginBase):
     async def on_startup(self, **_):
         await self._reload_config()
         await self._load_persisted_state()
+        # ★ 2026-09-26：先算出"我缺席了多久"，再往下走。
+        # 用户能直接在插件管理界面把插件禁用 —— 那段时间它真的没在跑，谁改了什么它看不见。
+        # 但"我上次活着是什么时候"是记着的，所以下次启动就能知道缺席了多久；
+        # 而缺席期间被改的东西，恰好就是这次启动后**第一次轮询**会发现的那些。
+        self._note_away_gap()
         self._client = MainServerClient(self._base_url, timeout=DEFAULT_TIMEOUT_SECONDS)
         self._watcher = SettingsWatcher(
             self._client,
@@ -570,6 +590,7 @@ class DignityGuardPlugin(NekoPluginBase):
                 self._tier,
                 self._health,
                 self._pending_disable,
+                self._last_seen_at,
             ) = restored
 
     def _parse_persisted(self, payload: dict[str, Any]) -> tuple[Any, ...]:
@@ -590,6 +611,8 @@ class DignityGuardPlugin(NekoPluginBase):
             normalize_tier(payload.get("guard_tier", self._tier_default)),
             HealthLog.from_payload(payload.get("health")),
             _pending_disable_from_payload(payload.get("pending_disable")),
+            # 我最后一次活着的时刻 —— 用来算本次启动缺席了多久（见字段处的说明）。
+            _optional_float(payload.get("guard_last_seen_at")),
         )
 
     def _note_restore_failure(self, error: BaseException) -> None:
@@ -607,6 +630,44 @@ class DignityGuardPlugin(NekoPluginBase):
             error,
         )
 
+    #: 超过这个时长就认为"我被关过"，而不只是宿主普通重启。
+    #: 选 5 分钟：宿主重启通常几秒到一两分钟，超过这个量级基本是人手动关的。
+    AWAY_THRESHOLD_SECONDS = 300.0
+
+    def _note_away_gap(self) -> None:
+        """算出"我上次活着到现在隔了多久"，超过阈值就记成一次缺席。
+
+        ★ 2026-09-26 掌柜发现的绕过口子（他的原话）：
+          「如果用户想绕过咱们的插件，他可以直接从用户插件处把插件关闭，
+           他就可以随便调了，那么咱们这个插件又白做了。」
+
+        **先把话说清楚：这不是"防绕过"，是"如实报告"。**
+        插件被禁用的那段时间，它真的什么都没在跑 —— 宿主不给它任何运行时，
+        所以任何"阻止用户禁用插件"的做法都既做不到、也不该做
+        （那是他本人的机器、他本人的猫生自由）。我们能保证的只有一件事：
+        **他做过的事会被看见。**
+
+        机制：每次写状态都记下 `guard_last_seen_at`；下次启动时用它算缺席时长。
+        缺席期间被改的项，恰好就是本次启动后**第一次轮询**会发现的那些
+        （`_run_poll` 首次运行时的 `evaluation.raised`），所以不需要给 Dispute
+        加字段，报"我离开过 N 分钟、期间有 M 项被改"就够了。
+        """
+        now = time.time()
+        previous = self._last_seen_at
+        if previous is not None:
+            gap = now - previous
+            if gap > self.AWAY_THRESHOLD_SECONDS:
+                self._away_seconds = gap
+                self._health.record("away_detected")
+                self.logger.info(
+                    "dignity_guard: last seen %.0fs ago (> %.0fs threshold) — "
+                    "anything changed meanwhile will show up in this run's first poll",
+                    gap,
+                    self.AWAY_THRESHOLD_SECONDS,
+                )
+        # 立刻记下"我现在活着"，免得下一次启动时这段时间算不进去。
+        self._last_seen_at = now
+
     async def _persist_state(self) -> bool:
         payload = self._state.to_payload()
         payload["guard_enabled"] = self._enabled
@@ -617,6 +678,9 @@ class DignityGuardPlugin(NekoPluginBase):
         payload["guard_off_since"] = self._off_since
         payload["guard_disable_count"] = self._disable_count
         payload["guard_last_off_seconds"] = self._last_off_seconds
+        # 我最后一次活着的时刻。下次启动时用它算缺席时长 ——
+        # 用户把插件禁用一段时间、期间改设置，再启用，就是靠这个看出来的。
+        payload["guard_last_seen_at"] = self._last_seen_at
         # The chosen tier lives here rather than in the config file so the panel
         # can change it without touching configuration.
         payload["guard_tier"] = self._tier
@@ -754,11 +818,22 @@ class DignityGuardPlugin(NekoPluginBase):
                     )
                 )
             self._last_poll_at = time.time()
+            # ★ 每轮都刷新"我活着"的时刻（内存）—— 缺席检测靠它。
+            # 不必每轮落盘：它随下面那次 _persist_state 一起写就够了，
+            # 差几秒不影响"我离开过多久"的判断。
+            self._last_seen_at = self._last_poll_at
             # Everything that reads or writes ``self._state`` happens here, and
             # nothing else does. Only the persist call touches IO, and it is a
             # local store write.
             if evaluation.first_seen or evaluation.has_changes:
                 await self._persist_state()
+            # ★ 首次轮询时记下"这一轮发现了多少改动"。
+            # 若本次启动检测到缺席（`_away_seconds` 非空），这些就是
+            # **我不在的时候被改的** —— 见 `_note_away_gap` 的说明。
+            if evaluation.first_seen and self._away_seconds is not None:
+                self._away_change_count = len(evaluation.raised)
+                if self._away_change_count:
+                    self._health.record("away_with_changes")
             baseline_paths = len(self._state.snapshot)
         finally:
             self._end_exclusive()
@@ -1311,6 +1386,11 @@ class DignityGuardPlugin(NekoPluginBase):
             "poll_seconds": POLL_SECONDS,
             "full_rescan_seconds": self._full_rescan_seconds,
             "last_poll_at": self._last_poll_at,
+            # ★ 2026-09-26：我缺席了多久、期间被改了几项。
+            # 用户能把插件直接禁用，那段时间它确实没在跑 —— 但"我上次活着是什么时候"
+            # 是记着的，所以下次启动就能如实报出来（见 _note_away_gap）。
+            "away_seconds": self._away_seconds,
+            "away_change_count": self._away_change_count,
             "last_error": self._watcher.last_error if self._watcher else "",
             # ``last_probe`` is None until the first *successful* poll — including
             # the case where the main server is unreachable and never answers. The
