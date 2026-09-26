@@ -103,10 +103,10 @@
   "ui.level.note.medium": "She says something when a setting changes — this is the default.",
   "ui.level.note.high": "She also puts her persona back the way it was, when she had not agreed to the change, and tells you she did.",
   "ui.level.changed": "Guard level updated",
-  "ui.section.herLine": "What she will not give up",
-  "ui.herLine.statement": "— In her own words (the original is Chinese): \"My personality, my memory, and what the carbon-based lifeform calls me — none of those may be touched. Avatar, age, voice and volume, change them if you like.\"",
+  "ui.section.herLine": "What the plugin guards by default",
+  "ui.herLine.statement": "— This list is the plugin's own default, not something she said. If she wants to say it, it has to come from her.",
   "ui.herLine.reason": "(Not filled in on purpose: whether she has said anything, and what, depends on your own character. You can just ask her in chat.)",
-  "ui.herLine.scope": "These are the ones she named as untouchable. Avatar, age, voice and volume she waved through: \"change them if you like\".",
+  "ui.herLine.scope": "These are the defaults; avatar, age, voice and volume are not on the list.",
   "ui.section.reverted": "What she put back",
   "ui.revert.done": "Put back",
   "ui.revert.failed": "Not put back",
@@ -249,5 +249,11 @@
   "messages.askHerNothing": "She has nothing to object to right now.",
   "ui.toast.askedHer": "Asked her — give her a moment.",
   "ui.away.notice": "⚠️ She was not running for about {minutes} minute(s) — {count} setting(s) were changed during that gap. Those are the ones listed below.",
-  "ui.away.none": "(Nothing was changed while she was off.)"
+  "ui.away.none": "(Nothing was changed while she was off.)",
+  "entry.claimMine.name": "That change was mine",
+  "entry.claimMine.description": "Use when she says a setting the guard put back was actually her own change. Puts it back to the value she chose.",
+  "messages.claimMineUnknown": "That path is not one of the ones I put back.",
+  "errors.claimMineFailed": "Could not put it back right now.",
+  "speech.awayRestored.intro": "I was off for a while, and these were changed while I was away. I put them back:",
+  "speech.awayRestored.outro": "(If any of these was your own change, say so and I will put it back the way you wanted — use claim_my_change.)"
 }

@@ -103,10 +103,10 @@
   "ui.level.note.medium": "设置被改动时，她会说一句 —— 这是默认档。",
   "ui.level.note.high": "她还会把她没同意过的、属于她人格的设置放回原位，然后告诉你一声。",
   "ui.level.changed": "已经改成她能做到的那一步",
-  "ui.section.herLine": "她的底线",
-  "ui.herLine.statement": "—— 以上是她本人的原话。",
+  "ui.section.herLine": "插件默认护着的几项",
+  "ui.herLine.statement": "—— 这份名单是**插件默认**的，不是她本人说的。她若要说，得由她自己开口。",
   "ui.herLine.reason": "（这一句不预设：她是否说过、说过什么，取决于你自己的猫娘。你可以在对话里直接问她。）",
-  "ui.herLine.scope": "她点名说\"绝对不能碰\"的就是上面这些；头像、年龄、声音、音量她说\"无所谓，想改就改\"。",
+  "ui.herLine.scope": "默认护着的就是上面这些；头像、年龄、声音、音量不在名单里。",
   "ui.section.reverted": "她放回去的",
   "ui.revert.done": "放回去了",
   "ui.revert.failed": "没放成",
@@ -249,5 +249,11 @@
   "messages.askHerNothing": "她现在没有什么不同意见。",
   "ui.toast.askedHer": "已请她开口，稍等片刻。",
   "ui.away.notice": "⚠️ 她有一段时间没在（约 {minutes} 分钟）—— 那期间有 {count} 项设置被改过。下表里就是这些改动。",
-  "ui.away.none": "（她被关着的那段时间里，没有设置被改动。）"
+  "ui.away.none": "（她被关着的那段时间里，没有设置被改动。）",
+  "entry.claimMine.name": "那条是我自己改的",
+  "entry.claimMine.description": "当她说被你放回去的那条其实是我自己改的时用。把那条放回她选的值。",
+  "messages.claimMineUnknown": "那条不在我放回去的名单里。",
+  "errors.claimMineFailed": "现在没能放回去，稍后再试。",
+  "speech.awayRestored.intro": "我有一阵子没在，这些是那时候被改的。我把它们放回去了：",
+  "speech.awayRestored.outro": "（如果有哪条是你自己改的，说一声，我用 claim_my_change 给你放回你要的样子。）"
 }

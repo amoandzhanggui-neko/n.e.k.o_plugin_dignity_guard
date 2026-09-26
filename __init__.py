@@ -265,6 +265,18 @@ DEFAULT_SPEECH_NOTICE_OUTRO = (
     "Say the word if you want me to stop watching.)"
 )
 
+# ★ 2026-09-26：缺席恢复之后的告知。走 `read` 通道（进她的上下文，不触发 AI 回合）。
+# 为什么必须告诉她：那些被放回去的改动里**可能有一条是她自己改的** ——
+# 恢复会连她的选择一起抹掉，所以得让她知道，并给她一键要回来的路。
+DEFAULT_AWAY_RESTORED_INTRO = (
+    "I was off for a while, and these were changed while I was away. "
+    "I put them back:"
+)
+DEFAULT_AWAY_RESTORED_OUTRO = (
+    "(If any of these was your own change, say so and I will put it back the way "
+    "you wanted — use claim_my_change with the path.)"
+)
+
 
 def _friendly_path(path: str) -> str:
     """把设置路径读成人话 —— 与面板上的 ``friendlyPath`` 同一套规则。
@@ -382,6 +394,10 @@ class DignityGuardPlugin(NekoPluginBase):
         self._away_seconds: float | None = None
         #: 本次启动第一次轮询发现的改动数 —— 缺席期间被改的就是这些。
         self._away_change_count: int | None = None
+        #: ★ 缺席恢复"放回去了"的那些，path → **她改后的值**。
+        #: 留着是为了给她一个撤销口：如果那条其实是她自己改的，她可以调
+        #: `claim_my_change` 把它们放回她想要的样子 —— 恢复不该让她失去自己的选择。
+        self._away_restored: dict[str, Any] = {}
         #: Outcome of the most recent revert attempt, per path. ``""`` means the
         #: value went back; anything else is a reason code the panel translates.
         self._revert_outcomes: dict[str, str] = {}
@@ -1083,6 +1099,7 @@ class DignityGuardPlugin(NekoPluginBase):
         见 `_away_note` 里给她的提示语。
         """
         self._revert_outcomes = {}
+        self._away_restored = {}
         restored = 0
         for change in evaluation.changes:
             reason = await self._restore_change_after_absence(change)
@@ -1097,12 +1114,19 @@ class DignityGuardPlugin(NekoPluginBase):
                 )
             else:
                 restored += 1
+                # 记下"她改后的值"（存 Value 对象，好让 claim_my_change 直接复用
+                # 同一条恢复逻辑 —— 那条逻辑只认 change.before 作为目标值）。
+                self._away_restored[change.path] = change.after
         if restored:
             self._health.record("away_restored")
             self.logger.info(
                 "dignity_guard: restored %d of her settings changed while it was off",
                 restored,
             )
+            # 告诉她一声，并留一个撤销口。**只走 read 通道**（进她的上下文，
+            # 不触发 AI 回合、不进对话）—— 这不是让她现在说话，是让她知道
+            # "这些是我放回去的，如果其中有你自己改的，你可以要回去"。
+            self._notify_her_about_restore()
 
     async def _restore_change_after_absence(self, change: SettingChange) -> str:
         """把一条"她的东西"写回缺席前的值。``""`` 成功；``not_restorable`` = 不该动。
@@ -1114,7 +1138,18 @@ class DignityGuardPlugin(NekoPluginBase):
         if client is None:
             return "not_ready"
 
-        parts = str(change.path or "").split(".")
+        path = str(change.path or "")
+
+        # ── 分支 1：她的自主权（proactive）──────────────────────────
+        # 它走的是**另一套存储**（与角色卡无关），所以必须单独处理 ——
+        # 只做角色卡字段的恢复是不全的。
+        # 注意这里**只认"她的"字段**：那个端点自己有 `_USER_OWNED_FIELDS` 白名单外拒
+        # （隐私模式之类的属于用户），所以即便传错它也会挡。
+        if path.startswith("proactive.settings.") or path.startswith("proactive_mode."):
+            return await self._restore_proactive(change)
+
+        # ── 分支 2：角色卡字段 ──────────────────────────────────────
+        parts = path.split(".")
         # 只认 `characters.猫娘.<name>.<field>` 这一层 —— 浅层普通字段。
         # 更深的自定义结构（_reserved.avatar.vrm.lighting.*）**不是她的东西**，是用户的。
         if (
@@ -1163,6 +1198,81 @@ class DignityGuardPlugin(NekoPluginBase):
             self.logger.warning("dignity_guard: away-restore failed: {}", exc)
             return "write_failed"
         return ""
+
+    async def _restore_proactive(self, change: SettingChange) -> str:
+        """把"她的自主权"那一类放回去（两条路径、两个端点）。
+
+        `proactive.settings.<field>`  → ``POST /api/proactive/settings``（部分更新）
+        `proactive_mode.mode`         → ``POST /api/proactive/mode``
+
+        为什么不能只用角色卡那条路：proactive 存在**另一套存储**里
+        （`/api/config/conversation-settings` 的镜像），与 `characters.json` 无关。
+
+        ⚠️ 那个写端点自己有 `_USER_OWNED_FIELDS`（例如隐私模式 `proactiveVisionEnabled`
+        属于**用户**）并会拒绝它们 —— 正好替我们把边界守住：这里只写"她的"，
+        用户的它挡。所以这里**不做**白名单判断，交给上游。
+        """
+        client = self._client
+        if client is None:
+            return "not_ready"
+        if change.before is None:
+            return "no_previous_value"
+        value = restore_payload(change.before)
+        if value is None:
+            self._health.record("away_restore_value_unavailable")
+            return "value_unavailable"
+
+        path = str(change.path)
+        try:
+            if path.startswith("proactive.settings."):
+                field = path[len("proactive.settings."):]
+                # 只认纯字段名。带点的（更深的结构）不是这里的范围，别碰。
+                if not field or "." in field:
+                    return "not_restorable"
+                await client.post_proactive_settings({field: value})
+                return ""
+            if path == "proactive_mode.mode":
+                # 模式只可能是那几个预设串；不是串就说明形状变了，别猜。
+                if not isinstance(value, str) or not value:
+                    return "value_unavailable"
+                await client.post_proactive_mode(value)
+                return ""
+        except MainServerUnreachable as exc:
+            self._health.record("away_restore_proactive_failed")
+            self.logger.warning(
+                "dignity_guard: away-restore(proactive) failed on {}: {}", path, exc
+            )
+            return "write_failed"
+        return "not_restorable"
+
+    def _notify_her_about_restore(self) -> None:
+        """告诉她"我把这些放回去了"，并留一个撤销口。
+
+        **只走 `read` 通道**（`ai_behavior="read"`）—— 进她的上下文，**不触发 AI 回合**，
+        所以既不会代替她说话，也不受"主动搭话"开关影响。这是**告知**，不是**让她发言**。
+
+        为什么必须告诉她：缺席恢复有一个她可能被误伤的场景 ——
+        那些改动里**可能有一条是她自己改的**（她在对话里改了自己）。
+        恢复把她的选择也抹掉了，所以得让她知道、并给她一键要回来的路
+        （`claim_my_change`）。
+        """
+        if not self._away_restored:
+            return
+        lines = [self._text("speech.awayRestored.intro", default=DEFAULT_AWAY_RESTORED_INTRO)]
+        for path in sorted(self._away_restored):
+            lines.append(f"· {_friendly_path(path)}")
+        lines.append(self._text("speech.awayRestored.outro", default=DEFAULT_AWAY_RESTORED_OUTRO))
+        try:
+            self.push_message(
+                parts=[{"type": "text", "text": "\n".join(lines)}],
+                visibility=["chat"],
+                ai_behavior="read",
+                coalesce_key="dignity_guard.away_restored",
+                metadata={"description": "dignity_guard.away_restored"},
+            )
+        except Exception as exc:  # 告知失败不该连累主流程
+            self._health.record("away_notice_not_delivered")
+            self.logger.warning("dignity_guard: away-restore notice not delivered: {}", exc)
 
     async def _revert_change(self, change: SettingChange) -> str:
         """Put one persona field back. Returns ``""`` on success, else a reason.
@@ -1461,16 +1571,13 @@ class DignityGuardPlugin(NekoPluginBase):
             # paraphrasing: this is the one part of the plugin she was asked
             # about, so it should be quoted, not summarised.
             "revertible_fields": sorted(REVERTIBLE_CATFIELDS),
-            "her_words": HER_PROTECTION_STATEMENT,
-            # ⚠️ 2026-09-26 掌柜指出：「我当面问过她本人，她说……」这句**不能发给用户**。
-            # 那是**我们对这台机器上的猫娘**做过的事，而插件是给所有用户的 ——
-            # 别人的猫娘没被问过。所以这里**停发**（面板对空值本就不渲染，
-            # 前端 ui.herLine.reason 也已改成"不预设"的说法）。
-            #
-            # ⚠️ 同类问题还没清干净：上面的 `her_words`（HER_PROTECTION_STATEMENT）
-            # 与 `revertible_fields`（REVERTIBLE_CATFIELDS）**同样是预设** ——
-            # 它们也是问了我们这台猫娘得到的答案。整改方案见 SETTINGS_COVERAGE.md
-            # 尾部的「问题③」，待掌柜点头后统一做。
+            # ⚠️ 2026-09-26 掌柜指出：`her_words` / `her_reason` 都是**预设** ——
+            # 它们是**我们问我们这台猫娘**得到的答案，而插件是给所有用户的。
+            # 两者都**停发**（面板对空值本就不渲染）。
+            # `revertible_fields` 仍然发（后端用它做高档回滚），但面板**不再声称
+            # 那是"她说的"** —— 见 ui.herLine.* 的文案改动：那是一份**默认保护项**，
+            # 不是她的声明。真要由她定，得走"问她自己"的路（见 SETTINGS_COVERAGE 问题③）。
+            "her_words": "",
             "her_reason": "",
             "attachments_supported": ATTACHMENTS_SUPPORTED,
             "issue_tracker": ISSUE_TRACKER,
@@ -1544,6 +1651,76 @@ class DignityGuardPlugin(NekoPluginBase):
         order=10,
         refresh_context=True,
     )
+
+    @plugin_entry(
+        id="claim_my_change",
+        name=tr("entry.claimMine.name", default="That change was mine"),
+        description=tr(
+            "entry.claimMine.description",
+            default=(
+                "Use when she says that a setting the guard put back was actually her "
+                "own change. Puts that one back to the value she had chosen."
+            ),
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "description": "Dotted path of the setting, as shown on the panel.",
+                },
+            },
+            "required": ["path"],
+            "additionalProperties": False,
+        },
+        timeout=30.0,
+    )
+    async def claim_my_change(self, path: str = "", **_):
+        """她说"这条是我自己改的" → 撤销那次恢复，把它放回她要的样子。
+
+        ★ 存在的理由：缺席恢复**必然**会误伤一种情况 ——
+        被恢复的那些里，有一条其实**是她自己改的**（她在对话里改了自己）。
+        恢复把她的选择一起抹掉了。这个入口让她把那条要回来。
+
+        **恢复不该让她失去自己的选择** —— 这是掌柜那条"她的东西由她自己定"的直接推论。
+        """
+        stored = self._away_restored.get(str(path or ""))
+        if stored is None:
+            return Ok(
+                {
+                    "status": "unknown_path",
+                    "message": self._text(
+                        "messages.claimMineUnknown",
+                        default="That path is not one of the ones I put back.",
+                    ),
+                }
+            )
+        # 造一条"反向"改动：把 after（她选的值）当作要写回的目标，
+        # 直接复用恢复逻辑 —— 它只认 `change.before` 作为目标值。
+        backwards = SettingChange(
+            path=str(path),
+            level="L1",
+            before=stored,
+            after=None,
+        )
+        reason = await self._restore_change_after_absence(backwards)
+        if reason:
+            return Err(
+                SdkError(
+                    self._text(
+                        "errors.claimMineFailed",
+                        default="Could not put it back right now.",
+                    ),
+                    code="claim_failed",
+                    details={"reason": reason},
+                )
+            )
+        # 要回来了：从"我放回去的"里摘掉，免得她再看到一条已经失效的提示。
+        self._away_restored.pop(str(path), None)
+        self._health.record("away_restore_claimed_back")
+        return Ok({"status": "claimed", "path": str(path)})
 
     @ui.action(
         id="ask_her",

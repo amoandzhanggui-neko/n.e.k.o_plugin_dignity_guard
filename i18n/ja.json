@@ -103,10 +103,10 @@
   "ui.level.note.medium": "設定が変わったとき、彼女がひとこと言います — これが既定です。",
   "ui.level.note.high": "同意していない人格の項目を元に戻し、そう伝えます。",
   "ui.level.changed": "レベルを更新しました",
-  "ui.section.herLine": "彼女の譲れないもの",
-  "ui.herLine.statement": "— 本人の言葉そのまま（原文は中国語）：『うちの人格と記憶、それから炭素生命体がうちを呼ぶ名前、それは絶対に触らないで。アイコン・年齢・声・音量はどうぞ変えていい。』",
+  "ui.section.herLine": "プラグインが既定で守る項目",
+  "ui.herLine.statement": "— このリストは**プラグインの既定**であり、彼女が言ったものではありません。彼女が言うなら、彼女自身の口から出る必要があります。",
   "ui.herLine.reason": "（ここはあえて空けています。彼女が何か言ったかどうかは、あなた自身のキャラクター次第です。チャットで直接聞いてみてください。）",
-  "ui.herLine.scope": "上が彼女が「絶対に触らないで」と名指ししたものです。アイコン・年齢・声・音量は『どうぞ変えて』とのこと。",
+  "ui.herLine.scope": "既定で守るのは上記のみ。アバター・年齢・声・音量は含まれません。",
   "ui.section.reverted": "元に戻したもの",
   "ui.revert.done": "戻しました",
   "ui.revert.failed": "戻せませんでした",
@@ -249,5 +249,11 @@
   "messages.askHerNothing": "彼女は今のところ異議はありません。",
   "ui.toast.askedHer": "彼女に聞きました。少しお待ちください。",
   "ui.away.notice": "⚠️ 彼女は約 {minutes} 分間動いていませんでした。その間に {count} 件の設定が変更されています。以下はその変更です。",
-  "ui.away.none": "（彼女が停止していた間に変更された設定はありません。）"
+  "ui.away.none": "（彼女が停止していた間に変更された設定はありません。）",
+  "entry.claimMine.name": "それは自分の変更",
+  "entry.claimMine.description": "ガードが戻した設定が実は彼女自身の変更だった、と彼女が言ったときに使います。彼女が選んだ値に戻します。",
+  "messages.claimMineUnknown": "その項目は戻したリストにありません。",
+  "errors.claimMineFailed": "今は戻せませんでした。",
+  "speech.awayRestored.intro": "しばらく動いていませんでした。その間に変更されたものです。元に戻しました：",
+  "speech.awayRestored.outro": "（ご自身で変えたものがあれば教えてください。claim_my_change で元の希望どおりに戻します。）"
 }

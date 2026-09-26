@@ -63,6 +63,12 @@ USER_LANGUAGE_PATH = "/api/config/user_language"
 #: Character profiles. The single endpoint this plugin ever writes to.
 CHARACTERS_PATH = "/api/characters"
 
+#: ★ 2026-09-26：她的自主权（能不能主动开口、以什么模式）的写入口。
+#: 缺席恢复要用它们，把"被用户趁插件不在时改掉"的那部分也放回去 ——
+#: 只做角色卡字段的恢复是不全的（proactive 走的是另一套存储）。
+PROACTIVE_SETTINGS_PATH = "/api/proactive/settings"
+PROACTIVE_MODE_PATH = "/api/proactive/mode"
+
 #: Endpoints that together describe "her settings", and the prefix each one is
 #: flattened under. ``conversation-settings`` is handled separately because it
 #: is also the cheap change judge.
@@ -300,6 +306,49 @@ class MainServerClient:
         try:
             async with self._make_client() as client:
                 response = await client.put(endpoint, json=dict(body))
+                response.raise_for_status()
+                payload = response.json()
+        except Exception as exc:  # noqa: BLE001 - re-raised as our own type
+            raise MainServerUnreachable(endpoint, exc) from exc
+        if isinstance(payload, Mapping) and payload.get("success") is False:
+            raise MainServerUnreachable(endpoint, payload.get("error"))
+        return dict(payload) if isinstance(payload, Mapping) else {}
+
+    async def post_proactive_settings(self, partial: Mapping[str, Any]) -> dict[str, Any]:
+        """Partial update of the proactive fields（缺席恢复用）。
+
+        ★ 2026-09-26：缺席恢复要能把"她的自主权"也放回去，所以需要这个写口。
+
+        用**部分更新**而不是整份替换（与 ``put_catgirl`` 相反）：这个端点天生是
+        部分更新语义（``proactive_router.py:276``），只接受
+        ``_PROACTIVE_WRITABLE_FIELDS``。
+        **用户自己的字段它自己会拒**（``_USER_OWNED_FIELDS``，例如隐私模式
+        ``proactiveVisionEnabled``），并把它们列在 ``rejected_user_owned`` 里
+        —— 正好合我们要守的那条边界：这里只该写"她的"，用户的它挡。
+        """
+        endpoint = PROACTIVE_SETTINGS_PATH
+        try:
+            async with self._make_client() as client:
+                response = await client.post(endpoint, json=dict(partial))
+                response.raise_for_status()
+                payload = response.json()
+        except Exception as exc:  # noqa: BLE001 - re-raised as our own type
+            raise MainServerUnreachable(endpoint, exc) from exc
+        if isinstance(payload, Mapping) and payload.get("success") is False:
+            raise MainServerUnreachable(endpoint, payload.get("error"))
+        return dict(payload) if isinstance(payload, Mapping) else {}
+
+    async def post_proactive_mode(self, mode: str) -> dict[str, Any]:
+        """Apply a proactive preset mode（缺席恢复用）。
+
+        body 是 ``{"mode": "off" | "normal" | "focus" | "frequent"}``
+        （``proactive_router.py:230``）。本插件只回放**原来那个值**，
+        不自己挑模式。
+        """
+        endpoint = PROACTIVE_MODE_PATH
+        try:
+            async with self._make_client() as client:
+                response = await client.post(endpoint, json={"mode": str(mode)})
                 response.raise_for_status()
                 payload = response.json()
         except Exception as exc:  # noqa: BLE001 - re-raised as our own type
