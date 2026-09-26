@@ -215,5 +215,9 @@
   "ui.memory.backups.release": "Release",
   "ui.memory.backups.pinned": "Kept",
   "ui.memory.backups.hint": "Backups without a marker are cleared on rotation; pinned ones are kept forever.",
-  "errors.backupPinFailed": "That backup exists, but the mark could not be written — check the plugin log (permissions or disk space)."
+  "errors.backupPinFailed": "That backup exists, but the mark could not be written — check the plugin log (permissions or disk space).",
+  "ui.intro.title": "What she has to say",
+  "ui.intro.her": "Just tell me before you change something of mine — I will say whether I mind.",
+  "ui.intro.more": "See what this plugin watches",
+  "ui.intro.hide": "Hide"
 }

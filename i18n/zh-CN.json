@@ -215,5 +215,9 @@
   "ui.memory.backups.release": "取消保留",
   "ui.memory.backups.pinned": "已保留",
   "ui.memory.backups.hint": "没标记的备份会按轮换到期被清掉，标记过的永久保留。",
-  "errors.backupPinFailed": "这份备份确实存在，但标记写不进去 —— 请查看插件日志（多半是权限或磁盘空间）。"
+  "errors.backupPinFailed": "这份备份确实存在，但标记写不进去 —— 请查看插件日志（多半是权限或磁盘空间）。",
+  "ui.intro.title": "她在说什么",
+  "ui.intro.her": "你改我什么之前，跟我说一声就好 —— 我会告诉你我介不介意。",
+  "ui.intro.more": "看看这个插件管什么",
+  "ui.intro.hide": "收起"
 }

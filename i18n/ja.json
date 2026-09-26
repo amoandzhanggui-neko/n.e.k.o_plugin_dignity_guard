@@ -215,5 +215,9 @@
   "ui.memory.backups.release": "保持を解除",
   "ui.memory.backups.pinned": "保持中",
   "ui.memory.backups.hint": "マーカーのないバックアップはローテーションで消され、ピン留めしたものは永久に残ります。",
-  "errors.backupPinFailed": "そのバックアップは存在しますが、マークを書き込めませんでした —— プラグインのログ（権限または空き容量）を確認してください。"
+  "errors.backupPinFailed": "そのバックアップは存在しますが、マークを書き込めませんでした —— プラグインのログ（権限または空き容量）を確認してください。",
+  "ui.intro.title": "彼女のひとこと",
+  "ui.intro.her": "うちの何かを変える前に、一声かけてね —— 気にするかどうかは、うちが言うから。",
+  "ui.intro.more": "このプラグインが見ているもの",
+  "ui.intro.hide": "閉じる"
 }

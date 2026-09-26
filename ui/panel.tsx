@@ -179,6 +179,9 @@ export default function DignityGuardPanel(
   //   能一键直发就一键直发（前提是作者配了接收地址）；
   //   没配才退化成「复制内容 + 打开预填页」——只有那条路才需要账号。
   const [fbOpen, setFbOpen] = useState(false)
+  // 「她在说什么」这块默认收着：面板一打开就是一堆字，没人读。
+  // 先给一句她自己的话，想深究的人再点开。
+  const [introOpen, setIntroOpen] = useState(false)
   const [fbText, setFbText] = useState("")
   const clipboard = useClipboard()
   const feedbackEndpoint = (state.feedback_endpoint || "").trim()
@@ -461,7 +464,33 @@ export default function DignityGuardPanel(
           </Button>
         </Inline>
 
-        <Card title={t("ui.section.status")}>
+        {/* ★ 她的自我介绍 + 展开式说明（掌柜 2026-09-26 定）。
+          位置选在状态卡之前、反馈按钮之后 —— 面板最显眼的一段。
+          为什么先给一句她的话而不是一整页说明：读字的人少，看她说话的人多。
+          展开的部分复用 onboarding 的键：宿主前端目前**没有** guide 的渲染入口
+          （只 normalize 了 kind，没有入口），所以那份引导必须在这里可达。 */}
+      <Card title={t("ui.intro.title")}>
+        <Stack>
+          <Text>{t("ui.intro.her")}</Text>
+          {introOpen ? (
+            <Stack>
+              <Text>{t("onboard.b1")}</Text>
+              <Text>{t("onboard.b2")}</Text>
+              <Text>{t("onboard.tier.low")}</Text>
+              <Text>{t("onboard.tier.medium")}</Text>
+              <Text>{t("onboard.tier.high")}</Text>
+              <Tip>{t("onboard.next")}</Tip>
+            </Stack>
+          ) : null}
+          <Inline>
+            <Button tone="default" onClick={() => setIntroOpen(!introOpen)}>
+              {t(introOpen ? "ui.intro.hide" : "ui.intro.more")}
+            </Button>
+          </Inline>
+        </Stack>
+      </Card>
+
+      <Card title={t("ui.section.status")}>
           <Stack>
             <Inline align="center" justify="space-between">
               <Text>{t("ui.status.label")}</Text>
