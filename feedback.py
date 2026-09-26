@@ -87,19 +87,21 @@ DEFAULT_USER_AGENT = "dignity_guard-plugin/0.1.0"
 #:
 #: Set ``feedback_endpoint`` in the configuration to point somewhere else.
 #:
-#: **Ships empty on purpose.** An earlier revision hard-coded a working relay
-#: here, reasoning that "Send" should be a real button out of the box. That was
-#: the wrong trade for this plugin's audience: whoever installs it is already
-#: editing config files and reading logs, so picking a relay *for* them is both
-#: presumptuous and opaque — when the third-party form inevitably fails, the user
-#: sees "send failed" with no way to tell whether it was the network, the relay,
-#: or us. Nobody should be asked to debug a stranger's form.
+#: **Ships non-empty so that "one-click feedback" is actually one click.**
 #:
-#: Empty means the panel offers **copy-and-open** instead: the text is shown and
-#: the user posts it wherever they like. That is the honest default, and it makes
-#: the ``feedback_endpoint_missing`` path the *normal* one rather than dead code.
-#: Configure ``feedback_endpoint`` to get a real Send button back.
-DEFAULT_FEEDBACK_ENDPOINT = ""
+#: An intermediate revision made this empty, on the reasoning that anyone who can
+#: install this plugin can configure an address, so picking a relay *for* them is
+#: presumptuous. That was right about the audience and wrong about the cost: with
+#: an empty default the panel degrades to *copy, then paste somewhere* — two
+#: steps, and the whole point of the button was that it be one. A feature whose
+#: default state is "off" is a feature most people never use.
+#:
+#: So the relay ships by default **and** stays configurable: point
+#: ``feedback_endpoint`` at your own collector, or set it to an empty string to
+#: get ``copy-and-open`` instead (that branch is real and tested, not dead code).
+#: Which also means: when this third-party form eventually breaks, the fix is a
+#: config edit, not a new release.
+DEFAULT_FEEDBACK_ENDPOINT = "https://formsubmit.co/ajax/ffa69e2f591e397d28f8aaa7b66a4ec7"
 
 
 class FeedbackUndeliverable(RuntimeError):
