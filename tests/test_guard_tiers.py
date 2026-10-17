@@ -11,6 +11,7 @@ Like ``test_settings_guard``, these start no host and touch no network.
 from __future__ import annotations
 
 from plugin.plugins.dignity_guard.settings_guard import (
+    CONFIG_TIER_CEILING,
     DEFAULT_TIER,
     LEVEL_L1,
     LEVEL_L2,
@@ -25,6 +26,7 @@ from plugin.plugins.dignity_guard.settings_guard import (
     Value,
     character_name,
     classify,
+    effective_default_tier,
     is_revertible,
     normalize_tier,
     restore_payload,
@@ -314,3 +316,51 @@ def test_high_tier_spares_an_l1_path_the_endpoint_would_refuse() -> None:
     )
     assert [dispute.path for dispute in evaluation.raised] == [archive]
     assert evaluation.to_revert == []
+
+
+# ---------------------------------------------------------------------------
+# 配置文件不能打开 high 档（2026-10-10 掌柜界定）
+#
+# 背景：``high`` 是唯一会**把用户改过的设置写回去**的档位。而 ``_parse_persisted``
+# 在存档里没有 ``guard_tier`` 键时会**回落到配置值** —— 于是"配置文件"这条
+# 用户可能从没打开过的路，就能把一个从没选过档位的人变成"会被回滚的人"。
+# 掌柜的规格：**启动时若 guard_level=high 而用户从未主动选择过，就拒绝并告警。**
+# ---------------------------------------------------------------------------
+
+
+def test_config_cannot_open_the_high_tier() -> None:
+    """``high`` 只能来自用户本人的选择，不能来自配置文件。
+
+    这不是洁癖：一旦配置文件能打开它，"从没选过档位的人"会在毫不知情的情况下
+    被回滚 —— 本插件存在的理由正是防这种事（报告一套、实际干另一套）。
+    """
+    assert CONFIG_TIER_CEILING == TIER_MEDIUM
+    assert effective_default_tier(TIER_HIGH) == (TIER_MEDIUM, True)
+    # 配置不区分大小写与空格，拒绝也必须认得出来（normalize_tier 的既有宽容度）
+    assert effective_default_tier("high") == (TIER_MEDIUM, True)
+    assert effective_default_tier("HIGH") == (TIER_MEDIUM, True)
+    assert effective_default_tier(" high ") == (TIER_MEDIUM, True)
+
+
+def test_the_clamp_does_not_hurt_the_other_tiers() -> None:
+    """只堵 ``high`` 一条；低/中档与"写错"的行为**必须一字不变**。
+
+    否则一个笔误就会把她的声音调小 —— 那是本插件绝不该犯的错。
+    注意 ``refused_high`` 也必须为假：**压制**与**告警**都要只发生在 high 上，
+    不然面板会开始对正常配置报"我们拒绝了你的设置"。
+    """
+    assert effective_default_tier(TIER_LOW) == (TIER_LOW, False)
+    assert effective_default_tier(TIER_MEDIUM) == (TIER_MEDIUM, False)
+    assert effective_default_tier("nonsense") == (DEFAULT_TIER, False)
+    assert effective_default_tier(None) == (DEFAULT_TIER, False)
+    assert effective_default_tier("") == (DEFAULT_TIER, False)
+
+
+def test_a_user_chosen_high_is_untouched() -> None:
+    """用户亲手选的高档**不受**本压制影响 —— 压的只是配置文件那条路。
+
+    落点在 ``_parse_persisted``：``normalize_tier(payload.get("guard_tier", ...))``。
+    ``guard_tier`` 存在时用的是**存档值**，本补丁不碰它。
+    """
+    assert normalize_tier(TIER_HIGH) == TIER_HIGH
+    assert normalize_tier("high") == TIER_HIGH

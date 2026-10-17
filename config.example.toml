@@ -24,6 +24,14 @@ disable_consent_delay_seconds = 10
 # also lets her speak up about a change; "high" additionally puts L1 changes
 # (her persona and her autonomy) back when she has not agreed to them.
 #
+# ★ "high" is NOT accepted from this file.
+#   It is the only level that writes a value back, so it must be a choice the
+#   user made *in the panel* (stored with the plugin state) — never one made by
+#   a config file the user may never have opened. Writing "high" here is
+#   refused: the level falls back to "medium", and the refusal is reported
+#   loudly at startup (health key "config_tier_high_refused" + an error log).
+#   See settings_guard.CONFIG_TIER_CEILING.
+#
 # This is only the *initial* value. Changing the level in the plugin panel
 # stores it with the plugin state, and a stored value always wins — so this
 # line stops having an effect once the level has been set from the panel.
@@ -31,17 +39,19 @@ guard_level = "medium"
 
 # --- Feedback -------------------------------------------------------------
 #
-# Where a one-click report goes. Leave this empty and the panel offers
-# copy-and-open instead of Send — never a button that cannot work.
-
-# Any HTTPS address that accepts a JSON POST (a form relay, your own worker, and
-# so on). Users never need an account of their own: they press Send and the
-# plugin posts for them.
+# Where a one-click report goes.
 #
-# Left empty, the built-in default is used — a FormSubmit relay keyed to the
+# Three meanings — do not mix them up:
+#   ""      -> use the built-in relay (one-click Send works out of the box)
+#   "none"  -> turn sending OFF entirely; the panel falls back to
+#              "copy the text, then open a page", and nothing leaves the machine
+#   <url>   -> an HTTPS address that accepts a JSON POST (a form relay, your own
+#              worker, ...). Users never need an account of their own: they press
+#              Send and the plugin posts for them.
+#
+# What "" resolves to: the built-in default — a FormSubmit relay keyed to the
 # maintainer's mailbox, identified by a hash rather than by an address, so the
-# mailbox itself appears nowhere in the plugin. Set this only to point feedback
-# somewhere else.
+# mailbox itself appears nowhere in the plugin.
 #
 # NOTE for relays that check where a request came from (FormSubmit does): the
 # plugin sends a Referer identifying itself, and the relay has to have been

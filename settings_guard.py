@@ -36,6 +36,7 @@ from typing import Any, Iterable, Mapping
 
 __all__ = [
     "AuthorizationLedger",
+    "CONFIG_TIER_CEILING",
     "DEFAULT_LEVEL",
     "DEFAULT_TIER",
     "GUARD_SWITCH_PATH",
@@ -61,6 +62,7 @@ __all__ = [
     "character_name",
     "classify",
     "diff_snapshots",
+    "effective_default_tier",
     "flatten",
     "is_revertible",
     "is_secret_path",
@@ -168,6 +170,42 @@ def normalize_tier(value: Any) -> str:
     """
     text = str(value or "").strip().lower()
     return text if text in TIERS else DEFAULT_TIER
+
+
+#: 配置文件（``[dignity_guard] guard_level``）**允许**设定的最高档位。
+#:
+#: ★ 2026-10-10 掌柜界定：``high`` 是唯一会**把用户改过的设置写回去**的档位
+#:   （见 :meth:`GuardState._should_revert`），因此它**只能来自用户亲手的选择**
+#:   （面板 → 落进 plugin store 的 ``guard_tier``），**不能由配置文件决定**。
+#:
+#:   为什么必须堵死：配置文件是"用户可能从没打开过"的东西。若它能打开 ``high``，
+#:   那么"从没选过档位的人"会在**毫不知情**的情况下被回滚 —— 那正是本插件存在的
+#:   理由所要防的那种事：**报告一套、实际干另一套**。
+#:
+#:   注：这**不是**新增限制，而是把既有的本意变成强制 —— ``__init__.py`` 里
+#:   ``payload["guard_tier"]`` 处原有注释已写明"档位放在那里（而不是配置文件里），
+#:   是为了让面板能改它而不碰配置"。
+CONFIG_TIER_CEILING = TIER_MEDIUM
+
+
+def effective_default_tier(configured: Any) -> tuple[str, bool]:
+    """把配置里写的档位收敛成**可用的默认档**，并报告是否拒绝了 ``high``。
+
+    返回 ``(tier, refused_high)``：
+
+    * ``refused_high`` 为真时，调用方**必须**据此告警
+      （见 ``DignityGuardPlugin._note_config_tier_high_refused``）——
+      **静默压制**等于"报告一套、实际干另一套"，正是本插件要抓的那种事；
+    * 其余情形与 :func:`normalize_tier` 完全一致（含"无法识别的值回落到
+      ``DEFAULT_TIER``"），所以**不会误伤**低/中档，也不会因为一个笔误让插件起不来 ——
+      把她的声音调小，是本插件绝不该犯的错。
+
+    ``high`` 为什么不能来自配置，见 :data:`CONFIG_TIER_CEILING`。
+    """
+    tier = normalize_tier(configured)
+    if tier == TIER_HIGH:
+        return CONFIG_TIER_CEILING, True
+    return tier, False
 
 
 # --------------------------------------------------------------------------

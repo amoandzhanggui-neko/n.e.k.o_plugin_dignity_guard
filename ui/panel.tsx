@@ -267,6 +267,23 @@ export default function DignityGuardPanel(
   const feedbackKB = Math.round((feedbackBytes / 1024) * 10) / 10
   const feedbackLimitKB = Math.round((feedbackBodyLimitBytes / 1024) * 10) / 10
   const feedbackTooLong = feedbackBytes > feedbackBodyLimitBytes
+
+  // ── 愿望单（2026-10-11 掌柜定）────────────────────────────────────
+  // **与「反馈」并列的独立入口**，理由（掌柜原话）：「一般来说应用中压根就
+  // 没这个玩意……如果说用户想要找的话，他也不可能去反馈里面找，所以得给他
+  // 单门列一块。」——"反馈"的心智是"报告一个已存在的问题"，"愿望"是"要一个
+  // 还不存在的东西"，两件事。
+  //
+  // 传输**复用**同一套（同一个 endpoint、同一个 deliver 家族）⟹ **没有新增
+  // 对外出口**，Issue 里那条"会发到第三方中转"的披露口径不必改。
+  // 但冷却在 Python 侧是**各算各的**（`_last_wish_at`），见 WISHLIST_COOLDOWN_SECONDS。
+  const [wishOpen, setWishOpen] = useState(false)
+  const [wishText, setWishText] = useState("")
+  const canSendWish = feedbackEndpoint.length > 0 && hasAction("submit_wish")
+  const wishBytes =
+    typeof TextEncoder !== "undefined" ? new TextEncoder().encode(wishText).length : wishText.length
+  const wishKB = Math.round((wishBytes / 1024) * 10) / 10
+  const wishTooLong = wishBytes > feedbackBodyLimitBytes
   // 反馈页地址改为以后端下发的 issue_tracker 为准（get_dashboard 保证返回）。
   // ⚠️ 后端值和前端原硬编码 FALLBACK_URL 是同一个地址；这里只在极端情况下
   // （state 缺字段）回退到字面量，避免打开空链接。改仓库名时改后端一处即可，
@@ -336,6 +353,37 @@ export default function DignityGuardPanel(
     if (!sent) return
     setFbText("")
     setFbOpen(false)
+  }
+
+  // ── 愿望单的两个动作：与反馈**同构**，只有三个差别 ────────────────
+  //   ① action 名不同（`submit_wish`，Python 侧有自己的冷却与邮件标题）；
+  //   ② 复制时**不带环境报告** —— 一个愿望（"我想要 X"）不需要用户的运行环境；
+  //   ③ 文案换成愿望单自己的（而不是复用"反馈"那套）。
+  async function copyWish() {
+    if (!wishText.trim()) {
+      toast.error(t("ui.wish.needText"))
+      return
+    }
+    const ok = await clipboard.write(wishText.trim())
+    if (ok) {
+      toast.success(t("ui.wish.copied"))
+    } else {
+      // 同反馈：复制失败就把内容摊在提示里，让用户手动选中复制（Ctrl+C）。
+      toast.error(`${t("ui.wish.copyFailed")}\n\n${wishText.trim()}`)
+    }
+  }
+
+  async function sendWish() {
+    if (!wishText.trim()) {
+      toast.error(t("ui.wish.needText"))
+      return
+    }
+    const sent = await call("submit_wish", { message: wishText.trim() }, t("ui.wish.sent"))
+    // 失败就什么都别动：正文留在框里、弹窗不关（同 sendFeedback 的理由 ——
+    // 用户不必把自己写的东西重打一遍）。
+    if (!sent) return
+    setWishText("")
+    setWishOpen(false)
   }
 
   /**
@@ -538,6 +586,12 @@ export default function DignityGuardPanel(
           </Button>
           <Button tone="default" onClick={() => setFbOpen(true)}>
             {t("ui.feedback.button")}
+          </Button>
+          {/* ★ 第三个入口「愿望单」（2026-10-11 掌柜定）。
+              它**不是**反馈的子选项 —— 见上方那段理由。放在这一排，
+              是因为这一排就是用户"想说话时会看的地方"。 */}
+          <Button tone="default" onClick={() => setWishOpen(true)}>
+            {t("ui.wish.button")}
           </Button>
         </Inline>
 
@@ -1038,6 +1092,21 @@ export default function DignityGuardPanel(
             2026-09-26：这些值（连接地址 / 多久看一次 / 设置改动过几轮）是
             给排查问题用的。普通用户看到"轮询间隔 20s"只会困惑"我需要懂这个吗"。
             收起来既保住了透明度（想看点一下就有），又不让第一屏被技术细节占满。 */}
+        {/* ★ 「接下来会做什么」（2026-10-11 掌柜定）。
+            数据源 = **随版本内置的静态清单**，刻意**不联网**：
+            插件目前一处"自动外联"都没有（扫描实证），加一个定时拉取会把对外
+            披露口径搞复杂（见给官方那份说明的第 4 条）。改清单 = 改 i18n 键，
+            跟着版本走。这一版只放一条 —— 掌柜："目前这个是给开发者看的，
+            就这一条就行了。" 加一条 = 加一对键 + 一行（见 ui.roadmap.item1）。 */}
+        <Card title={t("ui.section.roadmap")}>
+          <Stack>
+            <Text>{t("ui.roadmap.intro")}</Text>
+            <Divider />
+            <Text>{t("ui.roadmap.item1.title")}</Text>
+            <Text>{t("ui.roadmap.item1.body")}</Text>
+          </Stack>
+        </Card>
+
         <Card title={t("ui.section.diagnostics")}>
           <Stack>
             <Tip>{t("ui.diag.hint")}</Tip>
@@ -1225,6 +1294,61 @@ export default function DignityGuardPanel(
             <Tip>{t("ui.feedback.willSendTo")}</Tip>
           ) : (
             <Tip>{t("ui.feedback.noEndpoint")}</Tip>
+          )}
+        </Stack>
+      </Modal>
+
+      {/* ★ 愿望单弹窗（2026-10-11 掌柜定）。
+          刻意**比反馈弹窗简单**：没有附件那一段、没有"去 GitHub"那条路 ——
+          一个愿望不需要传文件，也不需要报告。故意保留的只有三件：
+            · 能直发就一键发，否则退回"复制 + 打开页面"（同一套降级）；
+            · 实时大小提示（让他自己看着办，而不是按了发送才知道发不出去）；
+            · 隐私提醒（同一句话 —— 这条通道是同一个）。
+          目标地址同样只用**人话**说明，不摆哈希 URL。 */}
+      <Modal
+        open={wishOpen}
+        title={t("ui.wish.title")}
+        onClose={() => setWishOpen(false)}
+        footer={
+          <div className="neko-button-group">
+            <Button tone="default" onClick={() => setWishOpen(false)}>
+              {t("ui.wish.close")}
+            </Button>
+            <Button tone="default" onClick={copyWish}>
+              {t("ui.wish.copy")}
+            </Button>
+            {canSendWish ? (
+              <Button tone="danger" disabled={busy} onClick={sendWish}>
+                {t("ui.wish.send")}
+              </Button>
+            ) : (
+              <Button tone="danger" onClick={openFeedbackPage}>
+                {t("ui.wish.open")}
+              </Button>
+            )}
+          </div>
+        }
+      >
+        <Stack>
+          <Text>{t("ui.wish.intro")}</Text>
+          <Alert tone="warning" message={t("ui.wish.privacy")} />
+          {/* Textarea 的 onChange 直接回调字符串值（不是 event），同反馈 */}
+          <Textarea
+            value={wishText}
+            placeholder={t("ui.wish.placeholder")}
+            onChange={(value: string) => setWishText(value)}
+          />
+          <Text>
+            {t("ui.wish.sizeHint", {
+              size: String(wishKB),
+              limit: String(feedbackLimitKB),
+            })}
+          </Text>
+          {wishTooLong ? <Alert tone="warning" message={t("ui.wish.tooLong")} /> : null}
+          {canSendWish ? (
+            <Tip>{t("ui.wish.willSendTo")}</Tip>
+          ) : (
+            <Tip>{t("ui.wish.noEndpoint")}</Tip>
           )}
         </Stack>
       </Modal>

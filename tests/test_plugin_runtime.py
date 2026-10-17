@@ -610,3 +610,208 @@ def test_away_restore_recognises_the_preferences_proactive_mirror(sandbox) -> No
         "角色卡字段应当被写回；实际调用 %r" % (rec.catgirl_calls,)
     )
     assert rec.catgirl_calls[0][1].get("昵称") == "先前的值", "应当写回旧值"
+
+
+# ---------------------------------------------------------------------------
+# 缺席恢复：补覆盖 + 一次性语义（2026-10-11）
+#
+# 背景：缺席恢复按设计**不受档位约束**（见 `_restore_absent_changes` 的 docstring：
+# 「档位的含义针对正常情况下的用户，用户这样做已经明显不正常了」），
+# 而它原先只由**启动时**的 `_note_away_gap()` 触发。于是两个问题：
+#   ① 「面板上关一下开关再打开」（进程不重启）**不会**触发它 ⟹ 静默降级成按档位处理，
+#      而这条路比卸载重装**更省事** ⟹ 是个更便宜的绕过口；
+#   ② `_away_seconds` 设了**永不清零** ⟹ 某次启动检测到缺席之后，本进程**后续每一轮**
+#      都会再走一次缺席恢复 ⟹ "此后用户的所有改动都被无条件恢复"，跨过了三档设计。
+# ---------------------------------------------------------------------------
+
+
+def test_re_enabling_the_guard_arms_the_absence_restore(sandbox, main_server) -> None:
+    """关掉再打开，必须与"卸载重装"同等对待。
+
+    判据用 `_away_seconds`（缺席恢复的唯一开关）：重开之后它必须是**非 None**。
+    这里不去断言"值真的被写回去了"，因为假服务器只有 `do_GET`、不支持
+    `PUT /api/characters` —— 与其用一个跑不通的断言假装端到端，不如把
+    **这条修复本身**钉死。
+    """
+    fake, base_url = main_server
+    ctx = _Ctx(base_url=base_url)
+    plugin = DignityGuardPlugin(ctx)
+
+    async def scenario() -> dict[str, Any]:
+        try:
+            await plugin.on_startup()
+            await plugin.check_now()
+
+            request = await plugin.set_guard_enabled(enabled=False)
+            token = request.value["consent_token"]
+            await asyncio.sleep(0.7)  # 越过"关闭需要她同意"的窗口
+            await plugin.set_guard_enabled(enabled=False, consent_token=token)
+
+            before = plugin._away_seconds
+            await plugin.set_guard_enabled(enabled=True)
+            return {
+                "before": before,
+                "after": plugin._away_seconds,
+                "off_seconds": plugin._last_off_seconds,
+            }
+        finally:
+            await plugin.on_shutdown()
+
+    result = asyncio.run(scenario())
+
+    assert result["before"] is None, "刚开机、没缺席过，按设计不该有值"
+    assert result["off_seconds"] is not None and result["off_seconds"] > 0.0
+    assert result["after"] is not None, (
+        "重开之后必须把这次『关过』种进缺席恢复 —— 否则这条绕过会静默降级成按档位处理"
+    )
+
+
+def test_the_absence_restore_is_one_shot(sandbox, main_server) -> None:
+    """缺席恢复必须只发生一次 —— 它是"绕过之后的补救"，不是一种**常态**。
+
+    缺席恢复不受档位约束，所以"它每轮都跑"等于把三档设计作废。
+    与它自述的"恰好就是本次启动后**第一次轮询**会发现的那些"直接矛盾。
+    """
+    fake, base_url = main_server
+    ctx = _Ctx(base_url=base_url)
+    plugin = DignityGuardPlugin(ctx)
+
+    async def scenario() -> dict[str, Any]:
+        try:
+            await plugin.on_startup()
+            await plugin.check_now()
+
+            # 模拟"这次启动检测到缺席"（真实路径见 `_note_away_gap`）
+            plugin._away_seconds = 600.0
+
+            fake.settings["proactiveChatEnabled"] = False
+            fake.bump_revision()
+            first = await plugin.check_now()
+            after_first = plugin._away_seconds
+
+            fake.settings["userLanguage"] = "en"
+            fake.bump_revision()
+            second = await plugin.check_now()
+            return {
+                "first": first,
+                "second": second,
+                "after_first": after_first,
+                "after_second": plugin._away_seconds,
+            }
+        finally:
+            await plugin.on_shutdown()
+
+    result = asyncio.run(scenario())
+
+    assert isinstance(result["first"], Ok)
+    assert result["after_first"] is None, "消费一次就该清零（一次性语义）"
+    # 第二轮不可能再走缺席分支 —— 那个分支的前提就是它非 None。
+    assert result["after_second"] is None
+    assert isinstance(result["second"], Ok), "后续轮询照常工作"
+
+
+def test_absent_changes_are_written_back(sandbox, main_server) -> None:
+    """缺席期间被改的**她的**字段，必须**真的被写回去**。
+
+    ★ 2026-10-11：在这条之前，假服务器只有 `do_GET` —— 插件的每条写回路径
+    （缺席恢复的 `PUT /api/characters`、她自主权的 `POST /api/proactive/*`）
+    **端到端从未被覆盖**，"她真把东西放回去了"一直只是纸面。
+
+    判据是服务端**确实收到并落下了**那次写（`fake.writes` + 值真的变回去），
+    **不是**"没报错" —— 后者正是这个插件专门去抓的那种假绿。
+    """
+    fake, base_url = main_server
+    ctx = _Ctx(base_url=base_url)
+    plugin = DignityGuardPlugin(ctx)
+
+    async def scenario() -> dict[str, Any]:
+        try:
+            await plugin.on_startup()
+            await plugin.check_now()
+
+            # 模拟"我离开过"：快照停在改动之前，改完再回来
+            plugin._away_seconds = 600.0
+            fake.characters["猫娘"]["雪"]["昵称"] = "阿雪"
+            fake.bump_revision()
+            result = await plugin.check_now()
+            return {"result": result}
+        finally:
+            await plugin.on_shutdown()
+
+    result = asyncio.run(scenario())
+
+    assert isinstance(result["result"], Ok)
+
+    # ① 确实发生了写 —— 不是只在她自己的账本里记了一笔
+    puts = [
+        write
+        for write in fake.writes
+        if write[0] == "PUT" and "/api/characters/catgirl/" in write[1]
+    ]
+    assert puts, "缺席恢复必须真的写回主服务，而不是只留痕"
+
+    # ② 值真的回去了
+    assert fake.characters["猫娘"]["雪"]["昵称"] == "雪"
+
+    # ③ ★ 没把别的字段弄丢 —— 那个端点是**整份替换**（未传字段全删），
+    #    所以这条断的其实是"读-改-写"那套动作用对了没有。
+    assert fake.characters["猫娘"]["雪"]["system_prompt"] == "你是雪。", (
+        "整份替换的端点会删掉未传字段 —— 漏传就是损坏，必须验证没漏"
+    )
+    assert fake.characters["猫娘"]["雪"]["voice_id"] == "voice-1"
+
+
+def test_setting_the_endpoint_to_none_turns_sending_off(sandbox, main_server) -> None:
+    """`feedback_endpoint = "none"` 必须真的**关掉外发**。
+
+    ★ 2026-10-11：原先 docstring 声称"把 `feedback_endpoint` 设成**空串**即可得到
+    `copy-and-open`"，但空串（以及键缺失）都会**回落到内置中转** —— 空串的语义是
+    "用内置默认"。于是那条降级分支**在生产上永远到不了**：写好了、也测过，
+    却没有任何配置值能走到它。
+
+    本用例把"关闭"钉死：`_feedback_endpoint` 变空，且面板拿到空值
+    （即既有的 `!canSendDirectly` 分支会生效）。
+    """
+    fake, base_url = main_server
+    ctx = _Ctx(base_url=base_url)
+    # 直接改配置字典，而不是整块替换 `_Ctx` 的 dignity_guard 段
+    # （那样会把 base_url 一起丢掉）。
+    ctx._config["dignity_guard"]["feedback_endpoint"] = "none"
+    plugin = DignityGuardPlugin(ctx)
+
+    async def scenario() -> dict[str, Any]:
+        try:
+            await plugin.on_startup()
+            dashboard = await plugin.get_dashboard()
+            return {"endpoint": plugin._feedback_endpoint, "dashboard": dashboard}
+        finally:
+            await plugin.on_shutdown()
+
+    result = asyncio.run(scenario())
+
+    assert result["endpoint"] == "", "none 必须真的关掉外发，而不是回落到内置中转"
+    assert result["dashboard"]["feedback_endpoint"] == "", (
+        "面板拿到的必须是空值，否则那个『复制 + 打开』的降级分支仍然不可达"
+    )
+
+
+def test_an_empty_endpoint_still_means_the_built_in_relay(sandbox, main_server) -> None:
+    """空串的语义是"用内置默认"，**不是**关闭 —— 这条不能被上一条改动带偏。
+
+    两者必须**区分开**：空 = 一键可用（默认）；`none` = 关闭。
+    """
+    from plugin.plugins.dignity_guard.feedback import DEFAULT_FEEDBACK_ENDPOINT
+
+    fake, base_url = main_server
+    ctx = _Ctx(base_url=base_url)
+    ctx._config["dignity_guard"]["feedback_endpoint"] = ""
+    plugin = DignityGuardPlugin(ctx)
+
+    async def scenario() -> str:
+        try:
+            await plugin.on_startup()
+            return plugin._feedback_endpoint
+        finally:
+            await plugin.on_shutdown()
+
+    assert asyncio.run(scenario()) == DEFAULT_FEEDBACK_ENDPOINT

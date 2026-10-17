@@ -97,11 +97,24 @@ DEFAULT_USER_AGENT = "dignity_guard-plugin/0.1.0"
 #: default state is "off" is a feature most people never use.
 #:
 #: So the relay ships by default **and** stays configurable: point
-#: ``feedback_endpoint`` at your own collector, or set it to an empty string to
-#: get ``copy-and-open`` instead (that branch is real and tested, not dead code).
+#: ``feedback_endpoint`` at your own collector, or set it to :data:`FEEDBACK_DISABLED`
+#: to get ``copy-and-open`` instead (that branch is real and tested, not dead code).
 #: Which also means: when this third-party form eventually breaks, the fix is a
 #: config edit, not a new release.
 DEFAULT_FEEDBACK_ENDPOINT = "https://formsubmit.co/ajax/ffa69e2f591e397d28f8aaa7b66a4ec7"
+
+#: 显式**关闭**反馈外发的哨兵值 —— 面板会退回「复制内容 + 打开页面」。
+#:
+#: ★ 2026-10-11 修：本文件上方的 docstring 原先声称"把 ``feedback_endpoint`` 设成
+#: **空串**即可得到 ``copy-and-open``"，**但代码不是这样** —— 空串（以及键缺失）
+#: 都会回落到 :data:`DEFAULT_FEEDBACK_ENDPOINT`，因为空串的语义是"**用内置默认**"
+#: （``config.example.toml`` 就是这么写的，那份是对的）。
+#: 于是那条降级分支**在生产上永远到不了**：已实现、也有测试，却没有任何配置值
+#: 能走到它 —— 正是本项目反复在抓的那种"写好了但没人能用"。
+#:
+#: 所以需要一个**不含糊**的值来表达"不要发到任何地方"。拿空串当关闭会和
+#: "我还没配"混淆，而后者恰恰应该一键可用（见上方理由）。故引入本哨兵。
+FEEDBACK_DISABLED = "none"
 
 
 class FeedbackUndeliverable(RuntimeError):

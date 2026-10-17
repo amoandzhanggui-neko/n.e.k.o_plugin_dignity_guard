@@ -1,6 +1,6 @@
 [project]
 name = "dignity_guard"
-version = "0.1.0"
+version = "0.1.0.dev0"
 dependencies = []
 
 [tool.pytest.ini_options]

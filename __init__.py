@@ -51,6 +51,7 @@ from .diagnostics import (
 )
 from .feedback import (
     DEFAULT_FEEDBACK_ENDPOINT,
+    FEEDBACK_DISABLED,
     FeedbackRateLimited,
     FeedbackUndeliverable,
     deliver,
@@ -81,6 +82,7 @@ from .memory_guard import (
     restore_blocker,
 )
 from .settings_guard import (
+    CONFIG_TIER_CEILING,
     DEFAULT_LEVEL,
     DEFAULT_TIER,
     GUARD_SWITCH_PATH,
@@ -92,6 +94,7 @@ from .settings_guard import (
     SettingChange,
     character_name,
     classify,
+    effective_default_tier,
     normalize_tier,
     restore_payload,
     revert_field,
@@ -119,7 +122,7 @@ DEFAULT_MEMORY_BACKUP_KEEP = 14
 #: Must match ``version`` in ``plugin.toml``. ``tests/test_smoke.py`` asserts the
 #: two agree, because a diagnostic that reports the wrong version costs the
 #: reader time in exactly the situation where it is least affordable.
-PLUGIN_VERSION = "0.1.0"
+PLUGIN_VERSION = "0.1.0.dev0"
 
 #: The title a pre-filled report carries. Deliberately dull — it is the first
 #: thing a maintainer sees and it should read like a report, not a plea.
@@ -216,6 +219,12 @@ PENDING_DISABLE_TTL_SECONDS = 3600.0
 #: relay ever asked them to. A limit nobody measured is not a limit that was
 #: chosen.
 FEEDBACK_COOLDOWN_SECONDS = 12.0
+
+#: 「愿望单」自己的冷却 —— **与反馈分开计**。
+#:
+#: 两个入口共用一把锁会互相饿死：用户提完一个愿望、十秒内想再报个 bug，
+#: 会被同一个 12 秒挡住 —— 而这两件事在用户心里是两回事。
+WISHLIST_COOLDOWN_SECONDS = 12.0
 
 # ----------------------------------------------------------------------
 # Fallback copy. Every string below is overridden by i18n/<locale>.json; the
@@ -358,6 +367,9 @@ class DignityGuardPlugin(NekoPluginBase):
         self._disable_delay = DEFAULT_DISABLE_DELAY_SECONDS
         self._enabled_default = True
         self._tier_default = DEFAULT_TIER
+        #: 配置文件里的 ``guard_level`` 是否要求了 ``high``（见 ``CONFIG_TIER_CEILING``）。
+        #: 只用于"大声告警"；判定与压制都在 ``_reload_config`` 里完成。
+        self._config_asked_for_high = False
 
         self._enabled = True
         #: How far the guard may go. The stored value is the source of truth and
@@ -430,6 +442,8 @@ class DignityGuardPlugin(NekoPluginBase):
         self._feedback_endpoint = DEFAULT_FEEDBACK_ENDPOINT
         #: When the last note was sent, for the cooldown.
         self._last_feedback_at = 0.0
+        #: 同上，但给「愿望单」单独计时（见 ``WISHLIST_COOLDOWN_SECONDS``）。
+        self._last_wish_at = 0.0
         #: Approximate start time, so a report can say how long it has been up.
         self._started_at = time.time()
 
@@ -465,6 +479,9 @@ class DignityGuardPlugin(NekoPluginBase):
                 "dignity_guard: plugin store is disabled; the dispute record "
                 "will not survive a restart. Set [plugin.store].enabled = true."
             )
+        # 配置文件想打开 high —— 拒绝过了，但**不许静默**（见方法自身的说明）。
+        if self._config_asked_for_high:
+            self._note_config_tier_high_refused()
         self.logger.info(
             "dignity_guard started: watching {} every {}s (guard_enabled={})",
             self._base_url,
@@ -543,14 +560,32 @@ class DignityGuardPlugin(NekoPluginBase):
             self._enabled_default = bool(section["enabled"])
         # Seeds the tier used only when nothing has been chosen yet; a stored
         # value wins over this (see ``_load_persisted_state``).
-        self._tier_default = normalize_tier(section.get("guard_level", DEFAULT_TIER))
-
-        configured_endpoint = section.get("feedback_endpoint")
-        self._feedback_endpoint = (
-            configured_endpoint.strip()
-            if isinstance(configured_endpoint, str) and configured_endpoint.strip()
-            else DEFAULT_FEEDBACK_ENDPOINT
+        #
+        # ★ 2026-10-10 掌柜界定：``high`` 只能由**用户自己选**，不能由配置文件决定
+        #   （见 ``settings_guard.CONFIG_TIER_CEILING``）。这里只做"压制 + 记下待告警"，
+        #   告警本身放到 ``on_startup`` —— 到那时 logger 与 health 一定已就绪。
+        self._tier_default, self._config_asked_for_high = effective_default_tier(
+            section.get("guard_level", DEFAULT_TIER)
         )
+
+        # ★ 2026-10-11：``feedback_endpoint`` 有**三种**含义，别混 ——
+        #   · 空 / 缺失              → **用内置默认**（"一键可用"，见 config.example.toml）
+        #   · FEEDBACK_DISABLED（"none"）→ **显式关闭**外发，面板退回"复制 + 打开页面"
+        #   · 其它非空串              → 用作者/用户指定的收集器
+        #   空串**不**表示关闭 —— 原先 docstring 声称可以，实际不行，
+        #   于是那条降级分支在生产上永远到不了（已实现、已测试，却没有配置能走到它）。
+        configured_endpoint = section.get("feedback_endpoint")
+        if (
+            isinstance(configured_endpoint, str)
+            and configured_endpoint.strip().lower() == FEEDBACK_DISABLED
+        ):
+            self._feedback_endpoint = ""
+        else:
+            self._feedback_endpoint = (
+                configured_endpoint.strip()
+                if isinstance(configured_endpoint, str) and configured_endpoint.strip()
+                else DEFAULT_FEEDBACK_ENDPOINT
+            )
         self._memory_root_setting = str(section.get("memory_root") or "").strip()
         self._memory_backup_seconds = _positive_float(
             section.get("memory_backup_seconds"), DEFAULT_MEMORY_BACKUP_SECONDS
@@ -644,6 +679,29 @@ class DignityGuardPlugin(NekoPluginBase):
             "from empty defaults. The file on disk is untouched.",
             type(error).__name__,
             error,
+        )
+
+    def _note_config_tier_high_refused(self) -> None:
+        """配置文件想要 ``high`` —— 拒绝，并且**说很大声**。
+
+        ``high`` 是唯一会**写回用户设置**的档位（见 ``GuardState._should_revert``）。
+        若它能由一个用户可能从没打开过的配置文件打开，那么"从没选过档位的人"会在
+        **毫不知情**的情况下被回滚 —— 本插件存在的理由正是防这种事。
+
+        所以本插件只承认**用户亲手选过**的档位（plugin store 的 ``guard_tier``，
+        由面板或 ``set_guard_level`` 写入）。配置里写 ``high`` 的后果是：
+        **不采信**（回落 ``CONFIG_TIER_CEILING``）+ 这条告警。
+
+        姿态与 ``_note_restore_failure`` 一致：**大声、留痕、不假装没发生**。
+        health 随 state 一起落盘，所以"只在启动时才出现的问题"事后仍查得到。
+        """
+        self._health.record("config_tier_high_refused")
+        self.logger.error(
+            'dignity_guard: [dignity_guard] guard_level="high" in the plugin config was '
+            'REFUSED and downgraded to "{}". The high tier writes settings back, so it must '
+            "come from the user's own choice (store key guard_tier), never from a config file "
+            "the user may never see. Pick the tier from the panel.",
+            CONFIG_TIER_CEILING,
         )
 
     #: 超过这个时长就认为"我被关过"，而不只是宿主普通重启。
@@ -898,8 +956,21 @@ class DignityGuardPlugin(NekoPluginBase):
         # 缺席后重启**不是** `first_seen` —— 快照是从磁盘恢复的，
         # 所以会走正常 diff 路径，`evaluation.changes` 里就是
         # "我不在时被改的"全部内容。
+        #
+        # ★★ 2026-10-11 修（**一次性语义**）：`_away_seconds` 原先设了就永不清零
+        #   （全文件只有 `_note_away_gap` 一处赋值），于是"某次启动检测到缺席"之后，
+        #   **本进程后续每一轮轮询**都会再走一次缺席恢复。而缺席恢复按设计
+        #   **不受档位约束**（见其 docstring："档位在这里不适用"）⟹
+        #   结果是**此后用户的所有改动都被无条件恢复** ——
+        #   与之冲突的有两处：① 本方法自述"就是本次启动后**第一次轮询**会发现的那些"；
+        #   ② 三档设计本身（低档承诺"只记录、不打扰"）。
+        #   修法：**消费一次即清零**，并用 `finally` 保证异常路径也清掉 ——
+        #   否则一次恢复失败就会把整个进程永久钉在"无条件恢复"上。
         if self._away_seconds is not None:
-            await self._restore_absent_changes(evaluation)
+            try:
+                await self._restore_absent_changes(evaluation)
+            finally:
+                self._away_seconds = None
         if evaluation.raised:
             self._speak(evaluation)
         # She has spoken; now the high tier may put something back. Kept
@@ -2070,6 +2141,21 @@ class DignityGuardPlugin(NekoPluginBase):
                     # can say more than "it is on now".
                     self._last_off_seconds = max(0.0, time.time() - self._off_since)
                     self._off_since = None
+                    # ★★ 2026-10-11 补覆盖：**关掉本插件再打开**，是"卸载重装"的
+                    #   零成本等价物 —— 而且更省事（一个开关 vs 卸了再装）。
+                    #   而缺席恢复原先只由启动时的 `_note_away_gap()` 触发，
+                    #   所以这条路会**静默降级**成按档位处理（低档只记录、中档只表态），
+                    #   等于给用户留了一个比卸载更容易的绕过口。
+                    #
+                    #   为什么种进 `_away_seconds` 就够：禁用期间快照是**冻住的** ——
+                    #   `settings_watch` 在未启用时直接跳过 `_run_poll`，`check_now`
+                    #   在未启用时返回 Err，而 `watcher.poll` 全文件**只有 `_run_poll`
+                    #   一处调用**。所以重开后的第一轮 diff，恰好就是"我不在时被改的"
+                    #   全部内容 —— 与缺席后重启的情形**在结构上完全同构**。
+                    #
+                    #   由此沿用缺席恢复的全套规则（含"档位不适用"的判定与
+                    #   "只到她的浅层字段"的范围限制），不另起一套。
+                    self._away_seconds = self._last_off_seconds
                 self._enabled = True
                 self._pending_disable = None
                 persisted = await self._persist_and_report()
@@ -2661,6 +2747,162 @@ class DignityGuardPlugin(NekoPluginBase):
                 "chars": len(text),
                 "message": self._text(
                     "messages.feedbackSent", default="Thank you — it has been sent."
+                ),
+            }
+        )
+
+    # ------------------------------------------------------------------
+    # 愿望单（2026-10-11 掌柜定）
+    # ------------------------------------------------------------------
+    #
+    # ★ 为什么**单列一块、而不是并进"反馈"的类型下拉**（掌柜原话）：
+    #   「一般来说应用中压根就没这个玩意……如果说用户想要找的话，他也不可能去
+    #     反馈里面找，所以得给他单门列一块。」
+    #   ——**可发现性就是这个功能的全部意义**：用户要提的是一个"还不存在的东西"，
+    #   而"反馈"的心智是"报告一个已经存在的问题"，两件事。
+    #
+    # ★ 传输**复用**同一套（同一个 endpoint、同一个 `deliver`、同一段隐私提示）
+    #   ⟹ **零新增对外出口**，Issue 里那条"反馈会发到第三方中转"的披露口径**不用改**。
+    #
+    # ★ 与 `submit_feedback` 的**三处刻意不同**（不是笔误）：
+    #   ① **冷却各算各的**（`_last_wish_at` vs `_last_feedback_at`）——
+    #      共用一把锁会让两个入口互相饿死；
+    #   ② **不带诊断报告** —— 一个愿望（"我想要 X"）不需要用户的运行环境，
+    #      带上只会让收件箱更难读、信封更大；
+    #   ③ 自己的 `_subject`，作者在邮箱里**一眼就能按标题分拣**。
+    @plugin_entry(
+        id="submit_wish",
+        name="愿望单 · 我想要的功能",
+        description=(
+            "Tell the author what you would like to see next — a missing feature, or a "
+            "plugin that does not exist yet. One click, no account anywhere. Sent only "
+            "when you press the button; nothing fires by itself."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "description": "What the user would like to see.",
+                }
+            },
+            "required": ["message"],
+            "additionalProperties": False,
+        },
+        timeout=75.0,
+    )
+    async def submit_wish(self, message: str = "", **_):
+        """Hand a wish over through the same channel the feedback button uses.
+
+        Deliberately **not** the same entry as ``submit_feedback``: a wish and a bug
+        report are different things to the user, they get their own throttle, and
+        they are titled differently so they can be told apart on arrival.
+        """
+        text = str(message or "").strip()
+        if not text:
+            return Err(
+                SdkError(
+                    self._text("errors.wishEmpty", default="There is nothing to send yet."),
+                    code="empty_wish",
+                )
+            )
+
+        # 与反馈共用同一个 endpoint ⟹ 同一段隐私提示、同一套降级（``none`` = 关闭）。
+        endpoint = (self._feedback_endpoint or "").strip()
+        if not endpoint:
+            return Err(
+                SdkError(
+                    self._text(
+                        "errors.wishNoEndpoint",
+                        default=(
+                            "The author has not configured a receiving address, so there "
+                            "is nowhere to send this. Copy it instead."
+                        ),
+                    ),
+                    code="wish_endpoint_missing",
+                )
+            )
+
+        # 信封**不含诊断报告**（见上面第 ② 条）。仍然整封测量，理由与反馈相同：
+        # 中继的上限压在整个 HTTP body 上。
+        envelope = {
+            "message": text,
+            "plugin": f"dignity_guard {PLUGIN_VERSION}",
+            "platform": self._platform_summary(),
+            "_subject": f"{ISSUE_TITLE} · 愿望单",
+            "_template": "table",
+        }
+        body_bytes = len(json.dumps(envelope, ensure_ascii=False).encode("utf-8"))
+        if body_bytes > FEEDBACK_BODY_LIMIT_BYTES:
+            return Err(
+                SdkError(
+                    self._text(
+                        "errors.wishTooLong",
+                        default=(
+                            "That is about {size} KB and this channel takes around "
+                            "{limit} KB. Nothing was sent — please trim it a little, "
+                            "or send it in two parts."
+                        ),
+                        size=body_bytes // 1024,
+                        limit=FEEDBACK_BODY_LIMIT_BYTES // 1024,
+                    ),
+                    code="wish_too_long",
+                    details={"bytes": body_bytes, "limit": FEEDBACK_BODY_LIMIT_BYTES},
+                )
+            )
+
+        now = time.time()
+        since = now - self._last_wish_at
+        if self._last_wish_at and since < WISHLIST_COOLDOWN_SECONDS:
+            return Err(
+                SdkError(
+                    self._text(
+                        "errors.wishTooSoon",
+                        default="One was just sent; give it {seconds}s.",
+                        seconds=int(WISHLIST_COOLDOWN_SECONDS - since) + 1,
+                    ),
+                    code="wish_too_soon",
+                    details={"retry_after": WISHLIST_COOLDOWN_SECONDS - since},
+                )
+            )
+
+        try:
+            await deliver(endpoint, envelope)
+        except FeedbackRateLimited as exc:
+            self._health.record("wish_rate_limited")
+            self.logger.warning("dignity_guard: wish rate limited: {}", exc)
+            return Err(
+                SdkError(
+                    self._text(
+                        "errors.wishBusy",
+                        default=(
+                            "The channel is busy right now — nothing was lost. "
+                            "Press Send again in a minute and it will go through."
+                        ),
+                    ),
+                    code="wish_busy",
+                )
+            )
+        except FeedbackUndeliverable as exc:
+            self._health.record("wish_not_delivered")
+            self.logger.warning("dignity_guard: wish undeliverable: {}", exc)
+            return Err(
+                SdkError(
+                    self._text(
+                        "errors.wishFailed",
+                        default="The message could not be sent; see the plugin log.",
+                    ),
+                    code="wish_failed",
+                )
+            )
+
+        self._last_wish_at = time.time()
+        return Ok(
+            {
+                "status": "sent",
+                "chars": len(text),
+                "message": self._text(
+                    "messages.wishSent", default="Thank you — it has been sent."
                 ),
             }
         )

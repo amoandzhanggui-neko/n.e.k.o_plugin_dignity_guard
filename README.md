@@ -1,5 +1,7 @@
 # Dignity Guard
 
+**Status:** early development (`0.1.0.dev0`) — not a stable release.
+
 Give the catgirl a say in her own configuration. When someone edits the settings that
 shape her — her name, her voice, her looks, her persona — she should be able to *notice*
 it, *speak up* about it, and leave a *visible record* of what she does not agree with.
@@ -83,6 +85,16 @@ Copy `config.example.toml` into your plugin config. Keys under `[dignity_guard]`
 - `main_server_base_url` — defaults to `http://127.0.0.1:48911`
 - `full_rescan_seconds` — full comparison interval, default `60`
 - `disable_consent_delay_seconds` — grace period before the switch can be turned off, default `10`
+- `guard_level` — how far the guard may go: `low`, `medium` (the default) or `high`.
+  It only *seeds* the level, and a level chosen in the panel is stored with the plugin
+  state and always wins. **`high` is not accepted from this file.** It is the only level
+  that writes a value back (see *What else it reaches*), so it has to be a choice the
+  user made **in the panel** — never one made by a config file the user may never have
+  opened. A `high` written here is refused: the level falls back to `medium`, and the
+  refusal is reported loudly at startup (`config_tier_high_refused` in the health
+  record, plus an error in the plugin log).
+- `feedback_endpoint`, `memory_root`, `memory_backup_seconds`, `memory_backup_keep` —
+  documented in `config.example.toml`.
 
 All HTTP calls use `trust_env=False` and `proxy=None`, because a system or 360 proxy will
 otherwise hijack requests to `127.0.0.1`.
@@ -118,8 +130,8 @@ local builds and CI recreate it before release checks.
 Push a tag matching `plugin.toml` version to create a GitHub Release asset:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.0.dev0
+git push origin v0.1.0.dev0
 ```
 
 The generated `.github/workflows/release.yml` uploads `dignity_guard.neko-plugin`.
