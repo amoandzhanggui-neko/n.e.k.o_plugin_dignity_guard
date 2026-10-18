@@ -43,6 +43,9 @@ permissions = []
 [plugin_runtime]
 enabled = true
 auto_start = true
+# 启动要读十个 main_server 接口、再扫一遍记忆目录，宿主的全局默认只有 10 秒，
+# 这台机器上实测会擦线超时（表现为"启动失败"，插件本身没坏）。单插件放宽到 60 秒。
+timeout = 60
 
 [plugin.store]
 enabled = true

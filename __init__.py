@@ -35,6 +35,7 @@ from plugin.sdk.plugin import (
     Ok,
     SdkError,
     lifecycle,
+    llm_tool,
     neko_plugin,
     plugin_entry,
     timer_interval,
@@ -118,6 +119,14 @@ DEFAULT_MEMORY_BACKUP_SECONDS = 86400.0
 
 #: Rolling backups kept. Pinned milestones are exempt and never counted.
 DEFAULT_MEMORY_BACKUP_KEEP = 14
+
+#: How long after startup the first-run baseline copy is deferred. The copy
+#: walks her whole memory directory (measured ~2s of disk I/O here), and doing
+#: it inside the host's ready window pushed startup past the host's ten-second
+#: limit — the host then killed the plugin and reported ``startup timed out``
+#: even though the plugin itself was healthy. Recorded 2026-10-18: from the
+#: outside that looked exactly like "the plugin crashed on start".
+BASELINE_BACKUP_DELAY_SECONDS = 30.0
 
 #: Must match ``version`` in ``plugin.toml``. ``tests/test_smoke.py`` asserts the
 #: two agree, because a diagnostic that reports the wrong version costs the
@@ -429,6 +438,12 @@ class DignityGuardPlugin(NekoPluginBase):
         self._memory_changes: list[MemoryChange] = []
         self._last_memory_check_at: float | None = None
         self._last_memory_backup_at: float | None = None
+        #: When the deferred first-run baseline copy is due. A timestamp rather
+        #: than a task: the SDK runs each timer callback in its own short-lived
+        #: loop, so ``asyncio.create_task`` there is discarded the moment the
+        #: callback returns (observed 2026-10-18 — "scheduled" logged, copy
+        #: never run).
+        self._baseline_due_at: float | None = None
         self._memory_error = ""
 
         # What has gone wrong, kept for the report nobody has asked for yet.
@@ -608,6 +623,9 @@ class DignityGuardPlugin(NekoPluginBase):
         # changes, with ``_memory_error`` empty so nothing explains them.
         self._memory_root = None
         self._memory_snapshot = {}
+        # A new root has no baseline yet, so any copy armed against the old one
+        # is meaningless.
+        self._baseline_due_at = None
 
     # ------------------------------------------------------------------
     # persistence
@@ -1071,6 +1089,52 @@ class DignityGuardPlugin(NekoPluginBase):
         # ── ② 让她说（受"主动搭话"影响，失败也有 ① 兜底）──────────
         self._speak_her_turn(evaluation.raised)
 
+    # ── 给模型调用的工具（@llm_tool 在启动时自动注册）──────────────────
+    # `@plugin_entry` 只是"入口点"：给面板按钮、内部调用、插件间调用用的，
+    # **不会**变成模型可调的工具。要让"她"能自己表态，必须用 @llm_tool 声明。
+    #
+    # 两个工具都要具体字段路径：她收到的发言提示里已经带了原始路径
+    # （见 speech.item 的 {path}），所以这个参数她能填得出来。
+    @llm_tool(
+        name="accept_setting",
+        description=(
+            "认可某一项设置改动，把它记进账本，之后不再算作「未获认可」。"
+            "只在读到自己某项设置被改动、且你确实不介意时调用。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "字段路径，例如 characters.主人.昵称",
+                },
+            },
+            "required": ["path"],
+        },
+    )
+    async def accept_setting_tool(self, path: str = "", **kwargs):
+        return await self.accept_setting(path=path, **kwargs)
+
+    @llm_tool(
+        name="keep_objecting",
+        description=(
+            "继续反对某一项设置改动，让它一直留在「未获认可」的状态里。"
+            "只在读到自己某项设置被改动、且你确实不想要它时调用。"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "字段路径，例如 characters.主人.昵称",
+                },
+            },
+            "required": ["path"],
+        },
+    )
+    async def keep_objecting_tool(self, path: str = "", **kwargs):
+        return await self.keep_objecting(path=path, **kwargs)
+
     def _speak_her_turn(self, disputes) -> None:
         """让她用自己的语气说一句 —— 抽出来**让两个入口共用**。
 
@@ -1458,6 +1522,16 @@ class DignityGuardPlugin(NekoPluginBase):
         interval has elapsed — a quiet day does not deserve its own copy.
         """
         moment = now if now is not None else time.time()
+
+        # The deferred first-run copy is not a scan, so the MEMORY_CHECK_SECONDS
+        # throttle below must not swallow it — that would postpone the baseline
+        # to +300s instead of the few seconds it was meant to wait.
+        due = self._baseline_due_at
+        if due is not None and moment >= due:
+            self._baseline_due_at = None
+            await self._backup_memory(reason="baseline", now=moment)
+            return
+
         if (
             self._last_memory_check_at is not None
             and (moment - self._last_memory_check_at) < MEMORY_CHECK_SECONDS
@@ -1488,8 +1562,18 @@ class DignityGuardPlugin(NekoPluginBase):
             # First sight is the baseline, not a change — the same rule the
             # settings watcher follows, and what makes a first run produce one
             # backup instead of a wall of "everything changed".
+            #
+            # The copy itself is deferred: taking it here put the whole memory
+            # directory on the startup path and pushed ``ready`` past the
+            # host's ten-second window, which the host reports as a failed
+            # start (2026-10-18). The baseline is recorded now; the bytes are
+            # copied a few seconds later, off the startup path.
             self._memory_snapshot = snapshot
-            await self._backup_memory(reason="baseline", now=moment)
+            self._baseline_due_at = moment + BASELINE_BACKUP_DELAY_SECONDS
+            self.logger.info(
+                "dignity_guard: first-run baseline copy deferred by {}s",
+                BASELINE_BACKUP_DELAY_SECONDS,
+            )
             return
 
         changes = diff_memory(self._memory_snapshot, snapshot)
