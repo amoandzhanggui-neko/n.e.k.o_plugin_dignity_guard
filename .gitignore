@@ -17,3 +17,7 @@ store.db
 *.bak_*
 *.bak
 *.bak-*
+
+# 闸的演练产物：drill 轮不构成放行依据，永不入库
+# （review 轮的台账要入库 —— 那是审计记录，不是噪音）
+docs/review/_gate_drill*

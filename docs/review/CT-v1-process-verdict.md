@@ -1,13 +1,25 @@
-# 闸联动演练裁决表（非真实会审，用完即删）
+# CT-v1 过程裁决表（process-only，不得用于放行）
 
 CONTRACT=CT-v1 contracts/CT-v1.md e52ad604f81dc2d6
+SCOPE=process-only（闸 v2 + CT-v1 文本；不含 __init__.py 业务语义）
+BASE=4c4e2be
 
-## 裁决
-- 采纳：无
-- 驳回：无
-- 裁决：演练（kind=drill）
+| id | sev | 裁决 | 锚点（原话/产物） | 可重跑证据 |
+| M1 | P0 | 采纳 | 红队 S7/S8：逻辑搬家 + 改闸 | `--files` 列 34 项含闸自身 |
+| M2 | P0 | 采纳 | 红队 S23：docs 藏脚本 | `scriptsInDocDirs=0` |
+| M3 | P1 | 采纳 | 主审 D1：演练轮曾可作基线 | `lastReviewRound()`；`--check=1` |
+| M4 | P2 | 采纳 | 主审 D2：.bak 卡 dirty | `git status` 空 |
+| M5 | P0 | 采纳 | 主审 CT-v1 缺陷 D1~D3 / E1~E2 | `contracts/CT-v1.md` |
+| M6 | P0 | **未决** | `__init__.py` 业务语义：本会话无行级锚点 | 无 ⟹ 阻塞放行 |
 
-<!-- GATE-FILES 2026-10-18T08:25:12 -->
+未证实项：
+- U1 单次改动是否通知她（notified）：未验证（C-REV-1 正例不校验）
+- U2 C-REV-2 的 block_reported 恒为 null：未验证（该路径不产生 blocked）
+
+接受人：（空）
+结论：**不构成放行**。本表只证明"闸链路可跑"，不证明 34 个受控文件的业务语义被审过。
+
+<!-- GATE-FILES 2026-10-18T08:28:30 -->
 .github/workflows/release.yml 1d98a9cf2e7b61df
 .github/workflows/verify.yml a2be669364f2bc13
 .gitignore 6b4483ac43c8a3a9
@@ -43,7 +55,3 @@ tests/test_smoke.py 3230b2d2cda79a66
 ui/onboarding.tsx 90c5df131c461cc1
 ui/panel.tsx 6203f9b99fc28073
 <!-- /GATE-FILES -->
-
-
-## 说明
-演练轮，仅验证链路。
