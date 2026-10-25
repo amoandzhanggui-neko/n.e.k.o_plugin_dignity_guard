@@ -196,6 +196,23 @@ cd N.E.K.O && python -m pytest plugin/plugins/dignity_guard/tests/ -q -k "rev"
 
 ---
 
+## 不触及契约的实现变更（供判红 7 核对）
+
+判红 7 的判据是「实现语义变了 ⟹ 契约必须同步变」。但确实有些变更**不触及**本契约
+声明的 7 个 out 字段。那种时候为了过闸而去改契约，是**造假** —— 写一份不需要的变更，
+比不写更糟，因为它让"契约变更"这个信号失去意义。
+
+所以在这里记「改了实现，判定为不触及契约」的情况**和理由**。
+
+| 日期 | 变更 | 为什么不触及契约 |
+|---|---|---|
+| 2026-10-25 | `_speak` / `_speak_her_turn` / `_push_blocked_notice` / 缺席恢复通知 四处 `except Exception` 统一走 `_note_delivery_failure()`，区分「编程错误」与「外部故障」 | 只改**失败时怎么记**（health key 名与日志级别：`*_code_error` 带堆栈 vs `*_not_delivered` 警告），**不改失败时的对外行为**：`_speak` 仍返回 `False`、`_push_blocked_notice` 仍返回 `False`、两者都**不 re-raise**。7 个 out 字段的语义一个没变，`notified` / `block_reported` 仍是 `True / False / None` 三态 |
+
+**这不是豁免机制。** 它只允许写"为什么不动契约"，不允许写"以后再补"。
+写不出理由的，就老老实实改契约。
+
+---
+
 ## v1 → v2 变更摘要（给会审用，别让人以为偷偷改了行为）
 
 | 项 | CT-v1 | CT-v2 | 性质 |

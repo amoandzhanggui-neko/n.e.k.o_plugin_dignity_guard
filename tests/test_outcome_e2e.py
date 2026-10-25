@@ -95,6 +95,7 @@ def _plugin(*, submit: bool = True, revert_reason: str = "baseline_lost"):
     fake._state_after = lambda ev: DignityGuardPlugin._state_after(fake, ev)
     fake._push_blocked_notice = lambda paths: DignityGuardPlugin._push_blocked_notice(fake, paths)
     fake._delivered = DignityGuardPlugin._delivered
+    fake._note_delivery_failure = lambda p, e: DignityGuardPlugin._note_delivery_failure(fake, p, e)
     return fake, pushed
 
 
@@ -197,6 +198,82 @@ def test_notified_flows_into_summary() -> None:
     summary = DignityGuardPlugin._summary(fake, evaluation)
 
     assert summary["notified"] is True
+
+
+# ────── T4：投递失败要分清「外部故障」和「我们写错了」 ──────
+#
+# 为什么单独立这一节：这四处都是 `except Exception`，会把 AttributeError 一起吞掉。
+# 2026-10-25 实测踩到过 —— 假对象少挂一个方法，本该崩，结果拿到 delivered=False，
+# 日志只说"没送到"。于是排查的人会去查宿主和网络，而真正的问题是自己少写了一个方法。
+
+
+def test_programming_error_recorded_as_code_error() -> None:
+    """AttributeError / TypeError / NameError / UnboundLocalError ⟹ 记 code_error。
+
+    这四个的共同点：几乎只可能来自代码写错。宿主不会让你的属性消失。
+    """
+    records: list[str] = []
+    fake, _ = _plugin()
+    fake._health = SimpleNamespace(record=lambda k: records.append(k))
+    fake.logger = SimpleNamespace(
+        info=lambda *a, **k: None,
+        warning=lambda *a, **k: None,
+        exception=lambda *a, **k: None,
+    )
+
+    for exc in (
+        AttributeError("no such attr"),
+        TypeError("wrong arg"),
+        NameError("undefined"),
+        UnboundLocalError("local"),
+    ):
+        records.clear()
+        DignityGuardPlugin._note_delivery_failure(fake, "notice", exc)
+        assert records == ["notice_code_error"], f"{type(exc).__name__} 应记 code_error"
+
+
+def test_external_failure_recorded_as_not_delivered() -> None:
+    """网络/宿主类异常 ⟹ 记 not_delivered（沿用原来的名字，不破坏看板口径）。"""
+    records: list[str] = []
+    fake, _ = _plugin()
+    fake._health = SimpleNamespace(record=lambda k: records.append(k))
+    fake.logger = SimpleNamespace(
+        info=lambda *a, **k: None,
+        warning=lambda *a, **k: None,
+        exception=lambda *a, **k: None,
+    )
+
+    for exc in (TimeoutError("host slow"), OSError("socket closed"), RuntimeError("busy")):
+        records.clear()
+        DignityGuardPlugin._note_delivery_failure(fake, "notice", exc)
+        assert records == ["notice_not_delivered"], f"{type(exc).__name__} 应记 not_delivered"
+
+
+def test_speak_programming_error_is_not_mistaken_for_delivery_failure() -> None:
+    """端到端：``_speak`` 内部抛出编程错误时，**不崩**，但记的是 code_error。
+
+    这是 T4 的核心断言。两条同时成立才算对：
+      · 仍然不 re-raise（一次失败打死轮询定时器是更严重的毛病）
+      · 但名字必须是"我们写错了"，不是"没送到"
+    """
+    records: list[str] = []
+    fake, _ = _plugin()
+    fake._health = SimpleNamespace(record=lambda k: records.append(k))
+    fake.logger = SimpleNamespace(
+        info=lambda *a, **k: None,
+        warning=lambda *a, **k: None,
+        exception=lambda *a, **k: None,
+    )
+    # 拆掉 _delivered，让 _speak 内部抛 AttributeError
+    del fake._delivered
+
+    evaluation = Evaluation()
+    evaluation.raised = [_dispute()]
+
+    delivered = DignityGuardPlugin._speak(fake, evaluation)
+
+    assert delivered is False, "仍然不抛出去 —— 不能打死整轮轮询"
+    assert records == ["notice_code_error"], "但必须记成 code_error，不能混成 not_delivered"
 
 
 def _dispute() -> Dispute:

@@ -369,6 +369,18 @@ class RoundOutcome:
         }
 
 
+#: 哪些异常几乎只可能来自**代码写错**，而不是宿主或网络出问题。
+#:
+#: 为什么要单独分类：投递失败那几处都是 ``except Exception``，会把它们一起吞掉。
+#: 2026-10-25 实测踩到过 —— 测试里的假对象少挂一个方法，本该 AttributeError 崩，
+#: 结果拿到 ``delivered=False``，日志只说"没送到"。生产里的后果很具体：
+#: **一处笔误让通知永远发不出去**，而看日志的人会去查宿主和网络，方向完全错了。
+#:
+#: 故意只收这四个。``KeyError`` / ``IndexError`` 也可能是"宿主返回的结构变了"，
+#: 那是**我们没料到**而不是**我们写错了**，归到外部故障那边更诚实。
+PROGRAMMING_ERRORS = (AttributeError, TypeError, NameError, UnboundLocalError)
+
+
 def _friendly_path(path: str) -> str:
     """把设置路径读成人话 —— 与面板上的 ``friendlyPath`` 同一套规则。
 
@@ -1243,8 +1255,7 @@ class DignityGuardPlugin(NekoPluginBase):
                 delivered,
             )
         except Exception as exc:  # 通知失败不该连累下面那一步
-            self._health.record("notice_not_delivered")
-            self.logger.warning("dignity_guard: notice not delivered: {}", exc)
+            self._note_delivery_failure("notice", exc)
 
         # ── ② 让她说（受"主动搭话"影响，失败也有 ① 兜底）──────────
         self._speak_her_turn(evaluation.raised)
@@ -1265,6 +1276,35 @@ class DignityGuardPlugin(NekoPluginBase):
         if isinstance(receipt, dict):
             return receipt.get("submitted") is True
         return bool(receipt)
+
+    def _note_delivery_failure(self, purpose: str, exc: BaseException) -> None:
+        """记一次「没送出去」，并分清是外部故障还是我们自己的 bug。
+
+        ``purpose`` 与现有 health key 对齐：``notice`` / ``speech`` /
+        ``block_notice`` / ``away_notice`` —— 拼出来就是
+        ``<purpose>_not_delivered``（外部）或 ``<purpose>_code_error``（我们写错了）。
+
+        **不 re-raise，这是有意的。** 一次投递失败打死整个轮询定时器的代价更大：
+        2026-10-18 实测过 —— 参数名传错直接 TypeError，日志里是
+        ``Timer 'settings_watch' failed``，之后**整轮静默停摆**，插件看起来还活着
+        但什么都不做了。所以这里不崩，只让它**以正确的名字被记下来**。
+
+        为什么要分两类：混在一起等于把"通知系统坏了"和"我们写错了"当成同一件事。
+        前者要查宿主和网络，后者要改代码 —— 让人从同一条日志里猜是哪一种，
+        就是让每次排查都从零开始。
+        """
+        if isinstance(exc, PROGRAMMING_ERRORS):
+            self._health.record(f"{purpose}_code_error")
+            # exception 而不是 warning：带堆栈，一眼看出是代码写错
+            self.logger.exception(
+                "dignity_guard: {} failed with a programming error "
+                "(this is our bug, not the host's): {}",
+                purpose,
+                exc,
+            )
+            return
+        self._health.record(f"{purpose}_not_delivered")
+        self.logger.warning("dignity_guard: {} not delivered: {}", purpose, exc)
 
     # ── 给模型调用的工具（@llm_tool 在启动时自动注册）──────────────────
     # `@plugin_entry` 只是"入口点"：给面板按钮、内部调用、插件间调用用的，
@@ -1379,8 +1419,7 @@ class DignityGuardPlugin(NekoPluginBase):
         except Exception as exc:  # noqa: BLE001
             # 一次推送失败不该打死整个轮询定时器（2026-10-18 实测：参数名传错
             # 直接 TypeError，日志里是 Timer 'settings_watch' failed，之后整轮静默停摆）。
-            self._health.record("speech_not_delivered")
-            self.logger.warning("dignity_guard: could not hand the cue to the host: {}", exc)
+            self._note_delivery_failure("speech", exc)
             return
         if isinstance(receipt, dict) and receipt.get("submitted") is not True:
             self._health.record("speech_not_delivered")
@@ -1462,8 +1501,7 @@ class DignityGuardPlugin(NekoPluginBase):
                 metadata={"description": "dignity_guard.revert_blocked"},
             )
         except Exception as exc:  # noqa: BLE001 —— 报不出去不该打死整轮轮询
-            self._health.record("block_notice_not_delivered")
-            self.logger.warning("dignity_guard: blocked notice not delivered: {}", exc)
+            self._note_delivery_failure("block_notice", exc)
             return False
         delivered = self._delivered(receipt)
         self.logger.info(
@@ -1694,8 +1732,7 @@ class DignityGuardPlugin(NekoPluginBase):
                 metadata={"description": "dignity_guard.away_restored"},
             )
         except Exception as exc:  # 告知失败不该连累主流程
-            self._health.record("away_notice_not_delivered")
-            self.logger.warning("dignity_guard: away-restore notice not delivered: {}", exc)
+            self._note_delivery_failure("away_notice", exc)
 
     async def _revert_change(self, change: SettingChange) -> str:
         """Put one persona field back. Returns ``""`` on success, else a reason.

@@ -94,6 +94,18 @@ def sha(*parts: str) -> str:
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
+#: 当前哈希口径。台账每轮的 ``hash_algo`` 记的就是这个字符串。
+#:
+#: 2026-10-25 之前是 ``sha256-16-raw``（直接算工作区字节）。因为仓库里两种行尾并存
+#: （.gitattributes 加之前 checkout 的是 CRLF、之后写的是 LF），同一份代码在工作区和
+#: git blob 里哈希不同 ⟹ 台账跨机器不可比。改成归一化到 LF 之后跨机器一致。
+#:
+#: **两种口径的数字不能互相比。** 台账里老轮次保留了旧口径的真实值，
+#: 只加了标签，没有篡改历史；但拿它当基线会得出完全错误的结论，
+#: 所以 `ledger_files()` 会拒绝口径不符的轮次。
+HASH_ALGO = "sha256-16-lf"
+
+
 def file_hash16(path: Path) -> str:
     """与 ``neko_review_gate.js`` **同一口径**：``sha256(归一化到 LF 的字节).hex()[:16]``。
 
@@ -111,8 +123,30 @@ def file_hash16(path: Path) -> str:
     return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()[:16]
 
 
+def ledger_algo() -> str | None:
+    """台账最后一轮用的哈希口径；没有台账或没标 ⟹ ``None``。"""
+    try:
+        rounds = (json.loads(LEDGER.read_text(encoding="utf-8")).get("rounds") or [])
+        if not rounds:
+            return None
+        return (rounds[-1] or {}).get("hash_algo")
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def ledger_files() -> dict[str, str]:
-    """台账**最后一轮**登记的 ``{路径: 哈希}``；没有台账就返回空。"""
+    """台账**最后一轮**登记的 ``{路径: 哈希}``；口径不符或没有台账 ⟹ 空。
+
+    ★ 2026-10-25 加口径检查（T5）。第 1–4 轮存的是 ``sha256-16-raw``（原始字节），
+    第 5 轮起是 ``sha256-16-lf``。两种数字**不可比**：拿旧轮当基线，
+    会把所有 CRLF 文件判成"改了"，然后被判红 7 报成一片红 —— 而那是假红，
+    假红的下场是有人把它当噪声关掉，连真红一起关掉。
+
+    所以这里宁可返回空（调用方退回只看 git status，能力弱一点但不会说谎），
+    也不拿口径不符的数字去比。
+    """
+    if ledger_algo() != HASH_ALGO:
+        return {}
     try:
         rounds = (json.loads(LEDGER.read_text(encoding="utf-8")).get("rounds") or [])
         return dict((rounds[-1] or {}).get("files") or {})
@@ -332,6 +366,12 @@ def check_ast() -> None:
             owner = set()
 
     worktree = changed_files()
+    algo = ledger_algo()
+    if algo is not None and algo != HASH_ALGO:
+        yellow(
+            f"台账最后一轮用的是 {algo}，当前口径是 {HASH_ALGO} ⟹ 两边数字不可比，"
+            "本轮退回只看工作区改动（能力弱一点，但不会拿不可比的数字骗人）"
+        )
     since_ledger = changed_since_ledger()
     moved = worktree | since_ledger
 
