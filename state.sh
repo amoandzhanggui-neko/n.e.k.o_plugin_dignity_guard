@@ -108,6 +108,31 @@ if [ -f "$CACHE" ] && [ -n "${test_when:-}" ]; then
   fi
 fi
 
+# ---- 3.5 运行时证据：插件在宿主里到底跑没跑 ----
+# 为什么必须有这一节（2026-10-25 实测踩到的陷阱）：
+#   宿主日志今天 6553 条，其中提到 dignity 的 0 条。只看日志会得出"插件没跑"，
+#   但 data 目录里今天 11:28:59 生成了记忆备份、store.db 12:12 还在写 ⟹ 插件明明在干活。
+#   「日志没记」≠「没在跑」。要判断活着没有，必须看 data 目录，不能只看日志。
+RUNTIME_DATA="C:/Users/Administrator/AppData/Local/N.E.K.O/plugins/dignity_guard/data"
+HOSTLOG="C:/Users/Administrator/AppData/Roaming/N.E.K.O/neko-electron-debug.log"
+if [ -d "$RUNTIME_DATA" ]; then
+  latest_bk="$(ls -1 "$RUNTIME_DATA/memory_backups" 2>/dev/null | sort | tail -1)"
+  [ -z "$latest_bk" ] && latest_bk="（无备份目录）"
+  db_mtime="$(date -r "$RUNTIME_DATA/store.db" '+%Y-%m-%d %H:%M' 2>/dev/null || echo '（无 store.db）')"
+else
+  latest_bk="（data 目录不存在 ⟹ 插件从未在此宿主写过东西）"
+  db_mtime="—"
+fi
+if [ -f "$HOSTLOG" ]; then
+  today_s="$(date '+%Y-%m-%d')"
+  # 注意：grep -c 无匹配时**照样输出 0**，只是退出码为 1。
+  # 所以这里只能用 `|| true` 吞掉退出码，绝不能再 `|| echo 0` —— 那会多出一行 0。
+  log_all="$(grep -c "$today_s" "$HOSTLOG" 2>/dev/null || true)"; log_all="${log_all:-0}"
+  log_dg="$(grep "$today_s" "$HOSTLOG" 2>/dev/null | grep -c 'dignity' 2>/dev/null || true)"; log_dg="${log_dg:-0}"
+else
+  log_all="?"; log_dg="?"
+fi
+
 # ---- 4. 写盘 ----
 cat > "$OUT" <<EOF
 # STATE —— 现在到底能不能跑
@@ -143,7 +168,20 @@ $TEST_CMD
 > \`ImportError: attempted relative import with no known parent package\`，
 > 155 个用例全部 error。这是 2026-10-25 实测出来的，不是猜的。
 
-## 4. 下一步
+## 4. 运行时（插件在宿主里跑没跑）
+
+| 证据 | 值 |
+|---|---|
+| 最新记忆备份 | $latest_bk |
+| data/store.db 修改时间 | $db_mtime |
+| 宿主日志今日总条数 / 其中 dignity | $log_all / $log_dg |
+
+判据：**备份目录或 store.db 有当天更新 ⟹ 插件进程活着并在干活。**
+
+> 陷阱（2026-10-25 实测）：日志里 dignity 记录只有 $log_dg 条，但 data 有当天写入。
+> **「日志没记」≠「没在跑」** —— 判断活着没有看 data 目录，判断出了什么错才看日志。
+
+## 5. 下一步
 
 一条就好，必须带判据。当前判据：**0 failed、0 error**。
 EOF
