@@ -38,6 +38,11 @@ const HOST_COPY = path.join(ROOT, '..', 'N.E.K.O', 'plugin', 'plugins', 'dignity
 const EXCLUDE_DIRS = ['__pycache__', '.git', 'node_modules', '.pytest_cache', '.mypy_cache'];
 const DOC_WHITELIST = /\.(md|log)$|\.bak[^/]*$/i;
 
+// 哈希口径。台账每轮的 `hash_algo` 字段记的就是这个字符串，
+// `gate_extra.py` 的 `HASH_ALGO` 也必须是同一个值 —— 两边不一致 ⟹ 判红 7 会拒用整份台账。
+// 换算法时三处一起改：这里、gate_extra.py 的 HASH_ALGO、以及 sha16() 的实现。
+const HASH_ALGO = 'sha256-16-lf';
+
 function sha16(p) {
   try {
     // ★ 2026-10-25 修：**先归一化行尾再算哈希**，不直接拿工作区字节去算。
@@ -394,6 +399,15 @@ function stamp(verdictPath, note, isDrill) {
     files: cur,
     contract: { ver: cver, path: path.relative(ROOT, cp), hash: realChash },
     prev_hash: prev ? (prev.chain || '') : '',
+    // ★ 2026-10-25：记下本轮用的是哪种哈希口径。
+    //
+    // 为什么必须有：`gate_extra.py` 的判红 7 拿台账当基线（为了看清"已提交的改动"），
+    // 但两种口径的数字不可比 —— raw（直接算工作区字节）与 lf（归一化后再算）算出来不同。
+    // 没有这个字段，判红 7 只能保守地拒用整份台账，判据静默变弱。
+    //
+    // 写死的字符串与 `HASH_ALGO` 常量保持一致；将来换算法必须两处一起改，
+    // 否则老台账会被判红 7 当成"不可比"而整份作废 —— 那是保护，但会让人一头雾水。
+    hash_algo: HASH_ALGO,
   };
   round.chain = chainOf(round);
   led.rounds.push(round);
