@@ -210,6 +210,7 @@ cd N.E.K.O && python -m pytest plugin/plugins/dignity_guard/tests/ -q -k "rev"
 | 日期 | 变更 | 为什么不触及契约 |
 |---|---|---|
 | 2026-10-25 | `_speak` / `_speak_her_turn` / `_push_blocked_notice` / 缺席恢复通知 四处 `except Exception` 统一走 `_note_delivery_failure()`，区分「编程错误」与「外部故障」 | 只改**失败时怎么记**（health key 名与日志级别：`*_code_error` 带堆栈 vs `*_not_delivered` 警告），**不改失败时的对外行为**：`_speak` 仍返回 `False`、`_push_blocked_notice` 仍返回 `False`、两者都**不 re-raise**。7 个 out 字段的语义一个没变，`notified` / `block_reported` 仍是 `True / False / None` 三态 |
+| 2026-10-25 | `_note_delivery_failure` 加「是否真在 `except` 块内」的核对（T9）；`PROGRAMMING_ERRORS` 补查真实日志的证据（T7） | 同上：只影响**日志怎么写**（有没有堆栈、降级成 `error`），返回值与三态语义完全没动。T7 是纯注释，T9 只多一个 `if sys.exc_info()[1] is exc` 分支，两条分支记的 health key 都是 `*_code_error`，对外零变化 |
 
 **这不是豁免机制。** 它只允许写"为什么不动契约"，不允许写"以后再补"。
 写不出理由的，就老老实实改契约。
