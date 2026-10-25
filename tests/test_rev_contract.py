@@ -143,21 +143,122 @@ def test_rev2_rejecting_revokes_the_grant() -> None:
     assert [d.path for d in evaluation.raised] == [NICKNAME]
 
 
-# ─────────────────── 把"契约 ≠ 实现"这个缺口钉死 ───────────────────
+# ─────────────── 契约的 out 字段：从"缺失"到"有真值" ───────────────
+#
+# 2026-10-25：``block_reported`` / ``notified`` / ``status_after`` 三个字段落地了。
+#
+# 它们**没有**加进 ``Evaluation`` —— 那不是一个层次的东西：
+#   · ``Evaluation`` 是 ``evaluate()`` 这一次**判断**的结论（纯函数、不做 IO）
+#   · 这三个字段是这一轮**行动**的结果（通知发没发出去、回滚成没成）
+# 所以它们落在 ``RoundOutcome`` 里，由 ``_summary()`` 报出去。
+
+CONTRACT_OUT_KEYS = {"revert", "blocked", "block_reported", "notified"}
 
 
-def test_rev_contract_missing_out_fields_are_still_missing() -> None:
-    """CT-v2 声明了 7 个 out 字段，其中 3 个在实现里根本不存在。
+def test_outcome_report_uses_contract_key_names() -> None:
+    """``as_report()`` 的键必须**一字不差**是契约里的名字。
 
-    这条测试的用意**不是**容忍缺口，而是让缺口显式化：
-    一旦有人真的实现了 `block_reported` / `notified` / `status_after`，
-    这条就会失败，逼他回来更新 CT-v2 的映射表、把 C-REV-1/2 的分类从"未实现"改掉。
-
-    没有这条，缺口会被永远忘记 —— 那就是"看起来在跑、其实没跑"。
+    为什么单为这个写一条：契约说 ``notified``、代码里叫 ``notice_delivered``，
+    两边的代码都没写错，但对着读的人会以为其中一个压根不存在。
+    "同一件事两个名字"是最难查的那种不一致 —— 它不报错，只是让人得出错误结论。
     """
-    fields = set(Evaluation.__dataclass_fields__)
-    still_missing = [n for n in ("block_reported", "notified", "status_after") if n not in fields]
-    assert still_missing == ["block_reported", "notified", "status_after"], (
-        "缺口变了！实现里已经出现了上面列不出的字段之一。"
-        "请更新 CT-v2 的「契约字段 → 实际字段」映射表，并重新判定 C-REV-1/C-REV-2 的三分类。"
+    from plugin.plugins.dignity_guard import RoundOutcome
+
+    assert set(RoundOutcome().as_report()) == CONTRACT_OUT_KEYS
+
+
+def test_outcome_keeps_none_and_false_apart() -> None:
+    """``None``（没走到这条分支）与 ``False``（走到了但失败）必须能区分。
+
+    混成一种的后果是不对称的：
+      · 把 None 写成 False ⟹ 凭空造出"通知失败"，日志里全是假警报；
+      · 把 False 写成 None ⟹ 一次真实失败被藏起来 —— 而这正是插件要抓的东西。
+    """
+    from plugin.plugins.dignity_guard import RoundOutcome
+
+    never = RoundOutcome()
+    assert never.as_report()["notified"] is None
+    assert never.as_report()["block_reported"] is None
+
+    failed = RoundOutcome(notice_delivered=False, blocked_reported=False)
+    assert failed.as_report()["notified"] is False
+    assert failed.as_report()["block_reported"] is False
+
+    ok = RoundOutcome(notice_delivered=True, blocked_reported=True)
+    assert ok.as_report()["notified"] is True
+    assert ok.as_report()["block_reported"] is True
+
+
+def test_status_after_covers_all_six_values() -> None:
+    """六个取值都能从真实状态推出来，且优先级正确。
+
+    用假 self 直接调未绑定方法：``_state_after`` 只碰 ``self._outcome`` 和
+    ``self._state.pending()``，不需要真把插件启动起来（那要宿主 ctx）。
+    """
+    from types import SimpleNamespace
+
+    from plugin.plugins.dignity_guard import DignityGuardPlugin, RoundOutcome
+
+    def derive(outcome, pending: int = 0, **ev):
+        fake = SimpleNamespace(
+            _outcome=outcome,
+            _state=SimpleNamespace(pending=lambda: [object()] * pending),
+        )
+        evaluation = SimpleNamespace(
+            reverted=ev.get("reverted", []),
+            authorized=ev.get("authorized", []),
+        )
+        return DignityGuardPlugin._state_after(fake, evaluation)
+
+    # 出事压过一切，哪怕另外三件事同时成立
+    assert derive(RoundOutcome(blocked=["a"]), pending=3, reverted=["x"]) == "blocked"
+    # 等她表态压过"已修复"：挂着没决定的比已经处理完的更要紧
+    assert derive(RoundOutcome(put_back=["a"]), pending=1) == "pending"
+    assert derive(RoundOutcome(put_back=["a"])) == "reverted"
+    assert derive(RoundOutcome(), reverted=["a"]) == "revoked"
+    assert derive(RoundOutcome(), authorized=["a"]) == "accepted"
+    # 什么都没发生也必须有个名字 —— 契约 v2 要求这个字段恒有值（{present}）
+    assert derive(RoundOutcome()) == "unchanged"
+
+
+def test_delivered_treats_only_explicit_success_as_success() -> None:
+    """回执判据必须与 ``_speak_her_turn`` 同口径，不许两套。
+
+    两套口径的后果：同一个 push_message，日志说成功、面板说失败，
+    而两边代码都没有 bug —— 这种 bug 没有堆栈，只能靠人对着读出来。
+    """
+    from plugin.plugins.dignity_guard import DignityGuardPlugin
+
+    d = DignityGuardPlugin._delivered
+    assert d({"submitted": True}) is True
+    assert d({"submitted": False}) is False
+    assert d({"submitted": None}) is False
+    assert d({}) is False
+    # 非 dict 回执：旧宿主可能只返回 True/None。未知形状按旧行为（bool 判断），
+    # 否则旧宿主上每一次通知都会被记成失败 —— 那不是"更严格"，那是假警报。
+    assert d(True) is True
+    assert d(None) is False
+
+
+def test_rev_contract_out_fields_are_no_longer_missing() -> None:
+    """原来的「缺口钉死」测试 —— 缺口补上了，这条翻面。
+
+    历史：2026-10-25 之前这三个字段只存在于契约里，实现里一个都没有。
+    当时写了一条测试把它们钉死，意思是"将来真做了，这条会失败，逼人回来更新
+    映射表和三分类"。现在真做了，所以它翻面成**防复发**：
+    谁把字段从 ``RoundOutcome`` 删掉，它会立刻失败。
+    """
+    from plugin.plugins.dignity_guard import RoundOutcome
+
+    fields = set(RoundOutcome.__dataclass_fields__)
+    expected = {"put_back", "blocked", "notice_delivered", "blocked_reported"}
+    assert expected <= fields, f"RoundOutcome 缺字段：{expected - fields}"
+
+    # 反向：它们**不该**出现在 ``Evaluation`` 里 —— 判断与行动是两个层次。
+    # 真要挪进去，请先改这条测试并写清理由，别让它变成一条永远绿的摆设。
+    ev = set(Evaluation.__dataclass_fields__)
+    leaked = {"block_reported", "notified", "status_after"} & ev
+    assert not leaked, (
+        f"{leaked} 出现在 Evaluation 里了。它描述的是「行动结果」，不是「判断结论」；"
+        "挪进去会让 evaluate() 被迫知道 IO 成没成。"
     )

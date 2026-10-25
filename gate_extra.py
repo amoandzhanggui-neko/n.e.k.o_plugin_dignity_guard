@@ -46,6 +46,8 @@ SEAM = ROOT / "seam"
 BLOCKS = SEAM / "blocks.json"
 CONTRACTS = SEAM / "contract_snapshot.json"
 KEYS = SEAM / "three_keys.json"
+#: 会审台账 —— 判红 7 的**真基线**。不拿它当基线会漏掉一整类情况，见 check_ast。
+LEDGER = ROOT / "docs" / "review" / "review_ledger.json"
 RED: list[str] = []
 YELLOW: list[str] = []
 
@@ -90,6 +92,152 @@ def changed_files() -> set[str]:
 
 def sha(*parts: str) -> str:
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
+
+
+def file_hash16(path: Path) -> str:
+    """与 ``neko_review_gate.js`` **同一口径**：``sha256(文件字节).hex()[:16]``。
+
+    为什么必须逐字对齐：台账里的哈希是闸算的，这里若用 md5 或不同截断，
+    两边永远不相等 ⟹ 判红 7 会把"什么都没改"判成"改了很多"，
+    然后被当成噪声关掉。口径不一致的判定，比没有判定更坏。
+
+    已实测核对过（``.gitattributes``：Python 与台账同为 ``fd4e865bdc7ec81a``）。
+    """
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+
+
+def ledger_files() -> dict[str, str]:
+    """台账**最后一轮**登记的 ``{路径: 哈希}``；没有台账就返回空。"""
+    try:
+        rounds = (json.loads(LEDGER.read_text(encoding="utf-8")).get("rounds") or [])
+        return dict((rounds[-1] or {}).get("files") or {})
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def changed_since_ledger() -> set[str]:
+    """自上次会审登记以来内容变了的文件。
+
+    为什么不能只看 ``git status``（这是判红 7 之前的真漏洞）：
+      ``git status`` 只报**工作区 vs HEAD**。改动一旦 commit，工作区就干净了，
+      于是「改了实现、没改契约、直接提交」这一整类情况**完全检测不到** ——
+      而那正是判红 7 要拦的东西。台账是"上次会审那一刻的状态"，
+      拿它当基线，提交与否都能看见。
+    """
+    base = ledger_files()
+    if not base:
+        return set()
+    out: set[str] = set()
+    for rel, old in base.items():
+        p = ROOT / rel
+        if not p.is_file():
+            out.add(rel)  # 被删了也算变更
+        elif file_hash16(p) != old:
+            out.add(rel)
+    return out
+
+
+def contract_interface_changed() -> bool | None:
+    """契约接口（语义）有没有变。``None`` = 查不了。
+
+    为什么不直接比 ``contract_snapshot.json`` 的字节哈希：
+      那个文件是生成物，重写一次缩进变了哈希就变，但接口一个字没变。
+      那样会让"假变更"给真变更当豁免证。``seam_snapshot.py --check``
+      比的是**解析出来的接口结构**，缩进无关。
+    """
+    try:
+        r = subprocess.run(
+            [sys.executable, str(ROOT / "seam_snapshot.py"), "--check"],
+            cwd=str(ROOT), capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=60,
+        )
+        return r.returncode == 0
+    except Exception:  # noqa: BLE001
+        return None
+
+
+# ─────────────────── 判红 1：字段路径不许动态拼 ───────────────────
+# 「字段来源可追溯」的另一半。
+#
+# 前半（已做）：``seam/contract_snapshot.json`` 里每个字段都记了
+#   ``source: contracts/CT-v2.md#C-REV-1``，能回答"这个字段从哪条契约来"。
+#
+# 后半（本函数）：代码里写字段路径时**不许用拼接生成**。
+#
+# 为什么这是判红而不是风格建议：
+#   契约声明的是**精确路径**（``characters.主人.昵称``），逐字段断言靠它。
+#   一旦代码写成 ``f"characters.{name}.{field}"``，静态分析看到的就只是一个
+#   表达式，不是"一个已知字段"。于是契约说"我覆盖了 A"，代码实际写到了 ``A.b``
+#   —— 断言全过，而真正被写的那条路径一次都没被检查过。
+#   两边都能自圆其说，说的却不是同一件事。
+#
+# 现状（2026-10-25 实测）：代码里**零处**拼接，全部是静态常量表
+# （``LEVEL_RULES`` / ``REVERTIBLE_PREFIX`` / 两条工具描述）。所以这条一上线
+# 就是绿的 —— 它拦的是将来，不是现在。
+
+_PATH_HEADS = ("characters.", "preferences.")
+
+
+def _dynamic_key_spots(tree: ast.AST) -> list[tuple[int, str]]:
+    """找出把字段路径拼出来的位置，返回 ``[(行号, 人话原因)]``。
+
+    用 AST 而不是正则：正则漏跨行、漏括号嵌套、还会把注释里的示例当真。
+    """
+    found: list[tuple[int, str]] = []
+
+    def has_head(value: object) -> bool:
+        return isinstance(value, str) and any(h in value for h in _PATH_HEADS)
+
+    for node in ast.walk(tree):
+        line = getattr(node, "lineno", 0)
+        # f-string：f"characters.{name}.昵称"
+        if isinstance(node, ast.JoinedStr):
+            if any(isinstance(p, ast.Constant) and has_head(p.value) for p in node.values):
+                found.append((line, "f-string 里含字段路径前缀"))
+        # 加法拼接："characters." + name
+        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            if any(isinstance(s, ast.Constant) and has_head(s.value) for s in (node.left, node.right)):
+                found.append((line, "用 + 拼接字段路径"))
+        # % 格式化："characters.%s.昵称" % name
+        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):
+            if isinstance(node.left, ast.Constant) and has_head(node.left.value):
+                found.append((line, "用 % 格式化字段路径"))
+        # "characters.{}.昵称".format(name)
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if node.func.attr == "format" and isinstance(node.func.value, ast.Constant) \
+                    and has_head(node.func.value.value):
+                found.append((line, "用 .format() 生成字段路径"))
+    return found
+
+
+def check_dynamic_keys() -> None:
+    print("\n=== 判红 1：字段路径不许动态拼 ===")
+    owner: set[str] = set()
+    if BLOCKS.exists():
+        try:
+            owner = set(json.loads(BLOCKS.read_text(encoding="utf-8")).get("file_owner", {}).keys())
+        except Exception:  # noqa: BLE001
+            owner = set()
+    # 有块清单就只扫块受控文件（工具脚本自身不写设置，扫进来纯噪声）。
+    targets = sorted(
+        p for p in (owner or {f.name for f in ROOT.glob("*.py")})
+        if p.endswith(".py") and (ROOT / p).is_file()
+    )
+    bad = 0
+    for rel in targets:
+        try:
+            tree = ast.parse((ROOT / rel).read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:
+            yellow(f"{rel} 语法读不通，跳过动态 key 扫描（AST 那条会更严地处理它）")
+            continue
+        hits = _dynamic_key_spots(tree)
+        if not hits:
+            continue
+        bad += len({line for line, _ in hits})
+        for line, why in hits:
+            red(f"{rel}:{line} {why} —— 契约声明的字段必须是可静态识别的常量（判红 1）")
+    if not bad:
+        ok(f"受控 .py 共 {len(targets)} 个，字段路径全是静态常量，没有拼出来的")
 
 
 # ─────────────────── §4-R2 接缝私约 ───────────────────
@@ -144,8 +292,31 @@ def ast_dump(src: str) -> str | None:
 
 
 def check_ast() -> None:
-    print("\n=== 判红 7：AST 实质变更 ===")
-    # 只看「块受控文件」的 AST。
+    """判红 7：实现语义变了，契约必须跟着变。
+
+    2026-10-25 重写。旧版有两个洞，都会让这条判据在关键时刻失明：
+
+      ① **只看 ``git status``** —— 改动一旦 commit，工作区就干净了，
+         「改了实现、没动契约、直接提交」整类情况检测不到。
+         现在基线改成**台账最后一轮登记的哈希**（提交与否都看得见）。
+      ② **"快照变了"用文件是否出现在 diff 里判断** —— 但快照是生成物，
+         重新生成一次、缩进不同就算"变了"，于是"假变更"能给"真变更"当豁免证。
+         现在改成看**契约文件自己**有没有变（``contracts/`` 下的哈希），
+         再用 ``seam_snapshot.py --check`` 确认快照跟契约没脱钩。
+
+    判据表（实现侧 = 块受控 .py 的 AST 实质变更）：
+
+      ==============  ==============  ================================
+      实现变了         契约变了         结论
+      ==============  ==============  ================================
+      是              是（快照同步）   ✅ 正常变更
+      是              是（快照没更新） 🔴 契约改了却没重新生成快照
+      是              否               🔴 改了语义却没动契约
+      否（仅排版）    —                黄：作废本轮验收、不阻断
+      ==============  ==============  ================================
+    """
+    print("\n=== 判红 7：实现语义变更 → 契约必须同步 ===")
+    # 只看「块受控文件」。
     # 为什么不看全部 .py：改一个开发工具（block_check.py / seam_snapshot.py）也会改 AST，
     # 但它跟接缝无关 —— 全量检查会把工具维护误报成"改了语义没动契约"。
     owner: set[str] = set()
@@ -155,32 +326,77 @@ def check_ast() -> None:
         except Exception:  # noqa: BLE001
             owner = set()
 
-    ch = changed_files()
-    pys = sorted(f for f in ch if f.endswith(".py") and (ROOT / f).exists() and (not owner or f in owner))
-    if not pys:
-        ok("本次没改动任何块的受控 .py 文件")
+    worktree = changed_files()
+    since_ledger = changed_since_ledger()
+    moved = worktree | since_ledger
+
+    # ── 先单独查一件事：契约改了，快照跟上了吗 ──
+    # 这条与"实现有没有变"无关：只要契约变了而快照没重生成，
+    # 后面所有比对都是在拿一份过期快照说话。
+    contract_touched = sorted(p for p in since_ledger if p.startswith("contracts/"))
+    consistent = contract_interface_changed()
+    if contract_touched:
+        if consistent is True:
+            ok(f"契约文件变了（{len(contract_touched)} 个），快照与之一致")
+        elif consistent is False:
+            red(
+                "契约文件变了，但 seam/contract_snapshot.json 没跟着重生成 —— "
+                "后面的比对会用过期快照（先跑 python seam_snapshot.py）"
+            )
+        else:
+            yellow("契约文件变了，但快照检查跑不起来 ⟹ 无法确认是否同步")
+
+    if not changed_since_ledger() and not worktree:
+        ok("自上次会审以来没有任何改动")
         return
 
-    # 判红 7 的前提："快照未变"。这里先看契约快照有没有变（当前 vs HEAD）
-    snap_changed = "seam/contract_snapshot.json" in ch
+    candidates = sorted(
+        f for f in moved
+        if f.endswith(".py") and (ROOT / f).is_file() and (not owner or f in owner)
+    )
+    if not candidates:
+        ok("受控 .py 没有变化（改的是文档/工具/契约，不构成本条判红）")
+        return
 
-    for f in pys:
-        old = git("show", f"HEAD:{f}")
-        if not old.strip():
-            print(f"  [新] {f}（HEAD 里没有，属新增文件）")
-            continue
-        new = (ROOT / f).read_text(encoding="utf-8", errors="replace")
-        a, b = ast_dump(old), ast_dump(new)
-        if a is None or b is None:
-            yellow(f"{f} 有语法错误，读不到 AST（按最严处理：当实质变更）")
-            continue
-        if a == b:
-            yellow(f"{f} 只有排版变化（AST 等价）⟹ 作废本轮验收、不阻断")
+    contract_changed = bool(contract_touched)
+    for f in candidates:
+        cur_src = (ROOT / f).read_text(encoding="utf-8", errors="replace")
+        cur_ast = ast_dump(cur_src)
+
+        if cur_ast is None:
+            yellow(f"{f} 语法读不通，读不到 AST（按最严当实质变更）")
+            substantive = True
+        elif f not in worktree:
+            # 已提交：HEAD == 工作区，拿 HEAD 比 AST 得不到信息。
+            # 台账只存哈希不存内容，所以"改了什么"拿不到 ⟹ 按最严当实质变更。
+            # 这不是偷懒：判不了就放过，才是这条判据最坏的失效方式。
+            yellow(f"{f} 自上次会审以来变过且已提交 —— 拿不到登记时的内容，按最严当实质变更")
+            substantive = True
         else:
-            if snap_changed:
-                print(f"  [√] {f} AST 实质变更，且快照同步变了 —— 正常变更")
+            head_src = git("show", f"HEAD:{f}")
+            if not head_src.strip():
+                print(f"  [新] {f}（HEAD 里没有，新增文件按实质变更）")
+                substantive = True
             else:
-                red(f"{f} AST 实质变更，但契约快照没变 —— 改了语义却没动契约（判红 7）")
+                head_ast = ast_dump(head_src)
+                if head_ast is None:
+                    yellow(f"{f} HEAD 版本读不到 AST（按最严当实质变更）")
+                    substantive = True
+                elif head_ast == cur_ast:
+                    yellow(f"{f} 只有排版变化（AST 等价）⟹ 作废本轮验收、不阻断")
+                    substantive = False
+                else:
+                    substantive = True
+
+        if not substantive:
+            continue
+        if contract_changed:
+            ok(f"{f} AST 实质变更，且契约同步变了 —— 正常变更")
+        else:
+            red(
+                f"{f} AST 实质变更，但 contracts/ 下没有改动 —— "
+                "改了语义却没动契约（判红 7）。要么补契约，要么证明这次改动不触及契约"
+            )
 
 
 # ─────────────────── 判红 4：三键复用 ───────────────────
@@ -240,37 +456,49 @@ def check_three_keys() -> None:
 
 # ─────────────────── 判红 9：一轮内契约变更次数 ───────────────────
 def check_contract_churn() -> None:
-    """判红 9：一轮内契约快照改了几次。
+    """判红 9：一轮内契约改了几次（改太多次 ⟹ 契约没定下来，回去重定）。
 
     轮次边界用台账最后一次 stamp —— 按 skill §2.5-7，不许用 run_id 当边界（它未实现），
     改用 `--stamp` 台账的 chain head：链已存在、机器可判、语义等价。
+
+    ★ 2026-10-25 修掉两个漏（都是实测撞出来的）：
+
+      ① **未提交的改动不算**。旧版只数 `git log`；实测：改了 CT-v2.md 却报
+         「契约改了 0 次」。工作区里那次改动完全隐形。
+      ② **只盯 `seam/contract_snapshot.json`（生成物）**。改契约本身不算 ——
+         只要能不重新生成快照，改几次都数不到。
+
+      现在两者相加：已提交的往返次数（`git log`）+ 当前尚未登记的那一次。
+      「改了几次」这件事只有提交历史数得准；而"还没提交的那次"必须补上，
+      否则判据在最该生效的时刻（正在改）是瞎的。
     """
     print("\n=== 判红 9：一轮内契约变更次数 ===")
     round_t = None
-    led = ROOT / "docs" / "review" / "review_ledger.json"
-    if led.exists():
-        try:
-            rounds = json.loads(led.read_text(encoding="utf-8")).get("rounds", [])
-            if rounds:
-                # 台账字段是 at（不是 t）；兼容两种写法
-                round_t = rounds[-1].get("at") or rounds[-1].get("t")
-        except Exception:  # noqa: BLE001
-            pass
+    try:
+        rounds = (json.loads(LEDGER.read_text(encoding="utf-8")).get("rounds") or []) if LEDGER.exists() else []
+        if rounds:
+            round_t = rounds[-1].get("at") or rounds[-1].get("t")
+    except Exception:  # noqa: BLE001
+        round_t = None
 
-    args = ["log", "--oneline", "--", "seam/contract_snapshot.json"]
+    args = ["log", "--oneline"]
     if round_t:
-        args = ["log", "--oneline", f"--since={round_t}", "--", "seam/contract_snapshot.json"]
-    n = len([l for l in git(*args).split("\n") if l.strip()])
-    if "seam/contract_snapshot.json" in changed_files():
-        n += 1  # 工作区里还有一次未提交的契约改动，也算
+        args.append(f"--since={round_t}")
+    args += ["--", "contracts/", "seam/contract_snapshot.json"]
+    committed = len([line for line in git(*args).split("\n") if line.strip()])
+
+    dirty_paths = {p for p in (changed_since_ledger() | changed_files())
+                   if p.startswith("contracts/") or p == "seam/contract_snapshot.json"}
+    n = committed + (1 if dirty_paths else 0)
 
     scope = f"自上次会审（{str(round_t)[:19]}）以来" if round_t else "全历史"
+    detail = f"（已提交 {committed} 次 + 当前未登记 1 次）" if dirty_paths else ""
     if n >= 3:
-        red(f"{scope}契约改了 {n} 次 ⟹ 停该接缝，回工序 3 重定契约")
+        red(f"{scope}契约改了 {n} 次{detail} ⟹ 停该接缝，回工序 3 重定契约")
     elif n == 2:
-        yellow(f"{scope}契约改了 2 次 ⟹ 本轮验收作废、重跑（不阻断全局）")
+        yellow(f"{scope}契约改了 2 次{detail} ⟹ 本轮验收作废、重跑（不阻断全局）")
     else:
-        ok(f"{scope}契约改了 {n} 次，未越线")
+        ok(f"{scope}契约改了 {n} 次{detail}，未越线")
 
 
 # ─────────────────── 判红 10：三零同现 ⟹ 空转 ───────────────────
@@ -304,6 +532,8 @@ def check_zero_triple() -> None:
 def main() -> int:
     want = set(a for a in sys.argv[1:] if a.startswith("--"))
     run_all = not want
+    if run_all or "--dyn" in want:
+        check_dynamic_keys()
     if run_all or "--seam" in want:
         check_seam_private()
     if run_all or "--ast" in want:
@@ -321,7 +551,7 @@ def main() -> int:
         for r in RED:
             print("   - " + r)
         return 1
-    print(f"[√] 三条判定全绿" + (f"（{len(YELLOW)} 条黄，不阻断）" if YELLOW else ""))
+    print(f"[√] 全部判定通过" + (f"（{len(YELLOW)} 条黄，不阻断）" if YELLOW else ""))
     return 0
 
 

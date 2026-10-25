@@ -27,8 +27,8 @@ import secrets
 import threading
 import time
 from pathlib import Path
+from dataclasses import dataclass, field
 from typing import Any, Mapping
-
 from plugin.sdk.plugin import (
     Err,
     NekoPluginBase,
@@ -283,6 +283,26 @@ DEFAULT_SPEECH_NOTICE_OUTRO = (
     "Say the word if you want me to stop watching.)"
 )
 
+# ★ 2026-10-25：**放不回去**的时候要说出来（契约 C-REV-1 的 ``block_reported``）。
+#
+# 为什么新增这一段：高档位会"把她要求放回的东西放回去"，但有些值在放回那一刻
+# **已经证明不了还是她的**（见 ``GuardState._revert_source``）——那种情况以前只写
+# 一行 ``logger.info``，也就是**只有开发者看得见，用户看不见**。
+#
+# 后果很具体：「她想放回但放不回」和「她根本没打算放回」在外部看起来完全一样。
+# 而"沉默了却像做过了"正是这个插件存在的理由，不能由插件自己来犯。
+#
+# 走 ``read`` 通道（进对话、不触发 AI 回合）：这是系统告知，不是她的表态。
+DEFAULT_SPEECH_BLOCKED_INTRO = (
+    "[Dignity Guard] These were changed and I meant to put them back — but I could "
+    "not prove the old value was still yours, so I left them alone:"
+)
+DEFAULT_SPEECH_BLOCKED_ITEM = "· {name}"
+DEFAULT_SPEECH_BLOCKED_OUTRO = (
+    "(Saying \"left it alone\" rather than \"put it back\" is the point: had I done "
+    "nothing and said nothing, you would have no way to tell the two apart.)"
+)
+
 # ★ 2026-09-26：缺席恢复之后的告知。走 `read` 通道（进她的上下文，不触发 AI 回合）。
 # 为什么必须告诉她：那些被放回去的改动里**可能有一条是她自己改的** ——
 # 恢复会连她的选择一起抹掉，所以得让她知道，并给她一键要回来的路。
@@ -294,6 +314,59 @@ DEFAULT_AWAY_RESTORED_OUTRO = (
     "(If any of these was your own change, say so and I will put it back the way "
     "you wanted — use claim_my_change with the path.)"
 )
+
+
+@dataclass
+class RoundOutcome:
+    """一轮轮询里「她要求放回」这件事的结局 —— **只描述这一轮**。
+
+    为什么单独建一个结构，而不是从 ``GuardState`` / ``_revert_outcomes`` 里现推：
+
+      ``_revert_outcomes`` 是**跨轮保留**的（缺席恢复也往里写，面板也读它），
+      所以"上一轮拦住过"会一直留在里面。拿它当"本轮状态"用，就会出现
+      「这轮什么都没发生，但状态板一直显示 blocked」——那是把
+      "我从哪读"当成了"现在是什么"，正是这个插件要抓的那类错。
+
+      所以本轮的东西放本轮的结构里，每轮开头重建。
+
+    三个字段与契约 CT-v2 的 ``out`` 一一对应：
+      · :attr:`put_back` / :attr:`blocked`  → 契约的 ``revert`` / ``blocked``
+      · :attr:`blocked_reported`           → 契约的 ``block_reported``
+      · :attr:`notice_delivered`           → 契约的 ``notified``
+
+    ``None`` 与 ``False`` 是**两件事**，不能混：
+
+      · ``None``  = 这一轮根本没走到那个分支（比如没有争议，就不需要通知她）
+      · ``False`` = 走到了，但**没送达**
+      · ``True``  = 走到了，且送达
+
+      把 ``None`` 写成 ``False`` 会凭空造出"通知失败"，反过来把 ``False``
+      写成 ``None`` 会把一次真实的失败藏起来。契约里这两项都声明成
+      ``bool|null`` 就是为了让这个区别能被表达。
+    """
+
+    #: 真的放回去了的路径
+    put_back: list[str] = field(default_factory=list)
+    #: 她要求放回、但证明不了原值还是她的 —— 放不回去
+    blocked: list[str] = field(default_factory=list)
+    #: 有争议时那条「通知」有没有递到宿主。没有争议 ⟹ None
+    notice_delivered: bool | None = None
+    #: 有拦住时那条「放不回去」有没有递到宿主。没拦住 ⟹ None
+    blocked_reported: bool | None = None
+
+    def as_report(self) -> dict[str, Any]:
+        """摊平成契约要求的 ``out`` 形状（键名与 CT-v2 一致）。
+
+        ``revert`` 是 bool：契约问的是"有没有真的放回去至少一项"，
+        不是"放回去几项"——数量在 ``put_back`` 这个列表长度里，
+        要数量的人自己取，别让同一个信息有两个名字。
+        """
+        return {
+            "revert": bool(self.put_back),
+            "blocked": bool(self.blocked),
+            "block_reported": self.blocked_reported,
+            "notified": self.notice_delivered,
+        }
 
 
 def _friendly_path(path: str) -> str:
@@ -422,6 +495,11 @@ class DignityGuardPlugin(NekoPluginBase):
         #: Outcome of the most recent revert attempt, per path. ``""`` means the
         #: value went back; anything else is a reason code the panel translates.
         self._revert_outcomes: dict[str, str] = {}
+        #: 本轮结局（放回了什么／拦住了什么／通知有没有递到）。
+        #: ★ 必须**每轮重建**，不能从 ``_revert_outcomes`` 现推 —— 那个是跨轮保留的
+        #: （缺席恢复也往里写、面板也读它），拿它当"本轮"用会让状态板在
+        #: "什么都没发生"的一轮里继续显示 blocked。见 :class:`RoundOutcome`。
+        self._outcome: RoundOutcome = RoundOutcome()
         # 目标会话名（宿主 EventBus 要求 lanlan_name）。
         # 启动后从 /api/characters 的「当前猫娘」读一次并缓存。
         # 不传的话宿主会拿 None 去做"唯一已连接会话"兜底：0 个连接丢、≥2 个也丢
@@ -902,6 +980,10 @@ class DignityGuardPlugin(NekoPluginBase):
 
         try:
             await self._ensure_lanlan_name(client)
+            # 本轮结局从零开始记。放在这里（而不是函数最顶上）的理由：
+            # 上面 `_begin_exclusive` 失败会直接 Err 返回、什么都没干，
+            # 那种时候保留上一轮的结局反而更诚实 —— 这一轮确实没发生任何事。
+            self._outcome = RoundOutcome()
             try:
                 evaluation = await watcher.poll(force=force)
             except MainServerUnreachable as exc:
@@ -996,7 +1078,9 @@ class DignityGuardPlugin(NekoPluginBase):
             finally:
                 self._away_seconds = None
         if evaluation.raised:
-            self._speak(evaluation)
+            # 记的是**实际送达结果**，不是"我调用了 _speak"。两者差得远：
+            # 调用成功但宿主丢包，用户什么都没看到，那不能叫 notified。
+            self._outcome.notice_delivered = self._speak(evaluation)
         # She has spoken; now the high tier may put something back. Kept
         # separate from ``_speak`` on purpose: a revert we cannot carry out
         # must never be a reason she falls silent.
@@ -1026,6 +1110,21 @@ class DignityGuardPlugin(NekoPluginBase):
             "put_back": sum(1 for reason in self._revert_outcomes.values() if not reason),
             "put_back_failed": sum(1 for reason in self._revert_outcomes.values() if reason),
             "pending_total": len(self._state.pending()),
+            # ── 契约 CT-v2 的 out 字段（2026-10-25 补齐）─────────────────
+            # 键名**原样照契约**，一个字都不改：契约写 ``notified``，这里就叫
+            # ``notified``。一旦这边改叫 ``notice_delivered``，就会出现
+            # 「契约说 A、代码说 B、面板显示 C」，而这种不一致没人靠读代码能发现。
+            #
+            # ⚠ 与上面 ``put_back`` / ``put_back_failed`` 的区别，别混：
+            #   · ``put_back*`` = **最近一次回滚尝试**的结果（跨轮保留，面板在读）
+            #   · ``revert``    = **本轮**有没有真的放回去
+            #   两者只在「缺席恢复恰好插在同一轮」时不同。两个都留是因为它们的时间窗
+            #   不一样：面板要"上次是什么结果"，契约问"这轮做成了吗"。
+            "revert": bool(self._outcome.put_back),
+            "blocked": bool(self._outcome.blocked),
+            "block_reported": self._outcome.blocked_reported,
+            "notified": self._outcome.notice_delivered,
+            "status_after": self._state_after(evaluation),
             # Same guard as ``get_dashboard``: ``last_probe`` is None until the
             # first successful poll. Today this is unreachable (only called from
             # ``_run_poll`` after a successful ``poll()``, which always assigns
@@ -1039,6 +1138,42 @@ class DignityGuardPlugin(NekoPluginBase):
             ),
         }
 
+    def _state_after(self, evaluation: Evaluation) -> str:
+        """本轮结束后「她的处境」一句话概括（契约 CT-v2 的 ``status_after``）。
+
+        六个取值，**全部从真实状态推**，不是挑个好听的标签：
+
+        ============  ==================================================
+        ``blocked``    有改动她要求放回、但证明不了原值还是她的 ⟹ 放不回去
+        ``pending``    还有未获认可的改动挂着，等她表态
+        ``reverted``   本轮真的把东西放回去了
+        ``revoked``    她自己把改动撤回了（不是我们动的）
+        ``accepted``   本轮她认可了至少一项
+        ``unchanged``  本轮什么都没有
+        ============  ==================================================
+
+        顺序按**用户有多需要知道**排，不是按代码先后：
+        出事 > 等她表态 > 已修复 > 她改主意 > 她认了 > 无事。
+
+        为什么 ``pending`` 压在 ``reverted`` 前面：回滚成功是"已经处理完的事"，
+        挂着没表态的争议是"还等着人做决定的事"——后者才是要抬头看的。
+
+        ``unchanged`` 不是兜底垃圾桶：契约 v2 要求这个字段**恒有值**
+        （``{present}``，v1 允许 null、v2 收紧了），所以"什么都没发生"也必须
+        有个说得出口的名字，而不是留空。
+        """
+        if self._outcome.blocked:
+            return "blocked"
+        if self._state.pending():
+            return "pending"
+        if self._outcome.put_back:
+            return "reverted"
+        if evaluation.reverted:
+            return "revoked"
+        if evaluation.authorized:
+            return "accepted"
+        return "unchanged"
+
     # ------------------------------------------------------------------
     # speaking
     # ------------------------------------------------------------------
@@ -1046,8 +1181,16 @@ class DignityGuardPlugin(NekoPluginBase):
     def _text(self, key: str, *, default: str = "", **params: Any) -> str:
         return self.i18n.t(key, locale=self._user_locale, default=default, **params)
 
-    def _speak(self, evaluation: Evaluation) -> None:
+    def _speak(self, evaluation: Evaluation) -> bool:
         """告诉用户"设置被改了"，并让她有机会开口。
+
+        **返回：那条「通知」有没有递到宿主**（契约 CT-v2 的 ``notified``）。
+
+        诚实边界，写清楚免得以后被当成更强的结论：
+        ``True`` 只表示 ``push_message`` 被宿主收下了，
+        **不表示用户真的看见**——插件看不到用户的屏幕，也不知道他关没关窗口。
+        所以契约里这一项叫 ``notified`` 而不是 ``seen``。
+        ``False`` 才是硬信息：连递都没递出去，那时说"已经通知了"就是假话。
 
         ★ 掌柜 2026-09-26 定的原则（原话）：
           「关了主动对话按钮还能说话，**这是必要的**，**任何人都无权限制另一个人
@@ -1080,6 +1223,7 @@ class DignityGuardPlugin(NekoPluginBase):
                 )
             )
         notice.append(self._text("speech.notice.outro", default=DEFAULT_SPEECH_NOTICE_OUTRO))
+        delivered = False
         try:
             receipt = self.push_message(
                 **self._push_target(),
@@ -1089,13 +1233,14 @@ class DignityGuardPlugin(NekoPluginBase):
                 coalesce_key="dignity_guard.settings_notice",
                 metadata={"description": "dignity_guard.settings_notice"},
             )
+            delivered = self._delivered(receipt)
             # 可观测产物（2026-10-18）：证明"检测到 + 通知已投递"这两件事真的发生了。
             # 之前这里不留痕，出问题只能靠 store.db 的 mtime 猜。
             # 只记字段名，不记值 —— 值可能包含用户隐私。
             self.logger.info(
                 "dignity_guard: notice delivered paths={} receipt={}",
                 [d.path for d in evaluation.raised],
-                bool(receipt),
+                delivered,
             )
         except Exception as exc:  # 通知失败不该连累下面那一步
             self._health.record("notice_not_delivered")
@@ -1103,6 +1248,23 @@ class DignityGuardPlugin(NekoPluginBase):
 
         # ── ② 让她说（受"主动搭话"影响，失败也有 ① 兜底）──────────
         self._speak_her_turn(evaluation.raised)
+        return delivered
+
+    @staticmethod
+    def _delivered(receipt: Any) -> bool:
+        """宿主回执算不算「递到了」。
+
+        口径**故意与 ``_speak_her_turn`` 对齐**（那里判 ``submitted is not True``
+        就算失败），否则同一个 push_message 在两条路径上会有两种结论 ——
+        而"同一件事两套口径"正是最难查的那种 bug：日志说成功、面板说失败，
+        两边的代码都没有错。
+
+        非 dict 回执（``None`` / ``True`` 之类）按**旧行为**当成功：宿主版本还没
+        统一回执格式，把未知形状一律判失败会在旧宿主上把每一次通知都记成失败。
+        """
+        if isinstance(receipt, dict):
+            return receipt.get("submitted") is True
+        return bool(receipt)
 
     # ── 给模型调用的工具（@llm_tool 在启动时自动注册）──────────────────
     # `@plugin_entry` 只是"入口点"：给面板按钮、内部调用、插件间调用用的，
@@ -1237,8 +1399,15 @@ class DignityGuardPlugin(NekoPluginBase):
         "she wanted to and could not". The second is the honest — and more
         interesting — case, and reporting it as the first would be a claim the
         user has no way to check.
+
+        ★ 2026-10-25：拦住的那一路**必须留下一个用户看得见的出口**。
+          以前只写 ``logger.info``——那是给开发者看的，用户看不到。
+          于是"她想放回但放不回"和"她根本没打算放回"在外部完全一样，
+          而这两者分不清，正是这个插件存在的理由。见 :class:`RoundOutcome`。
         """
         self._revert_outcomes = {}
+        self._outcome.put_back = []
+        self._outcome.blocked = []
         for path in evaluation.revert_blocked:
             # She asked for it back and the value we would have written could
             # not be shown to be hers (see ``GuardState._revert_source``). That
@@ -1246,6 +1415,7 @@ class DignityGuardPlugin(NekoPluginBase):
             # looks exactly like one that was never attempted, and the second is
             # the failure this plugin exists to catch.
             self._revert_outcomes[path] = "baseline_lost"
+            self._outcome.blocked.append(path)
             self._health.record("revert_baseline_lost")
             self.logger.info(
                 "dignity_guard: left {} as it was (baseline_lost)", path
@@ -1254,9 +1424,52 @@ class DignityGuardPlugin(NekoPluginBase):
             reason = await self._revert_change(change)
             self._revert_outcomes[change.path] = reason
             if reason:
+                self._outcome.blocked.append(change.path)
                 self.logger.info(
                     "dignity_guard: left {} as it was ({})", change.path, reason
                 )
+            else:
+                self._outcome.put_back.append(change.path)
+        # 有拦住 ⟹ 必须报出去；没拦住 ⟹ blocked_reported 保持 None（本轮没走这条分支）。
+        if self._outcome.blocked:
+            self._outcome.blocked_reported = self._push_blocked_notice(self._outcome.blocked)
+
+    def _push_blocked_notice(self, paths: list[str]) -> bool:
+        """把「她要求放回、但放不回」说给用户听，返回有没有递到。
+
+        为什么走 ``ai_behavior="read"`` 而不是 ``"respond"``：
+          这条是**系统告知**，不是她的表态。让她为一件"我做不到"的事即兴发言，
+          等于把"报告失败"变成"她有没有心情说话"，而后者本该由用户那个
+          "主动搭话"开关决定 —— 一件事实陈述不该被那个开关掐掉。
+        """
+        lines = [self._text("speech.blocked.intro", default=DEFAULT_SPEECH_BLOCKED_INTRO)]
+        for path in sorted(paths):
+            lines.append(
+                self._text(
+                    "speech.blocked.item",
+                    default=DEFAULT_SPEECH_BLOCKED_ITEM,
+                    name=_friendly_path(path),
+                )
+            )
+        lines.append(self._text("speech.blocked.outro", default=DEFAULT_SPEECH_BLOCKED_OUTRO))
+        try:
+            receipt = self.push_message(
+                **self._push_target(),
+                parts=[{"type": "text", "text": "\n".join(lines)}],
+                visibility=["chat"],
+                ai_behavior="read",
+                coalesce_key="dignity_guard.revert_blocked",
+                metadata={"description": "dignity_guard.revert_blocked"},
+            )
+        except Exception as exc:  # noqa: BLE001 —— 报不出去不该打死整轮轮询
+            self._health.record("block_notice_not_delivered")
+            self.logger.warning("dignity_guard: blocked notice not delivered: {}", exc)
+            return False
+        delivered = self._delivered(receipt)
+        self.logger.info(
+            "dignity_guard: blocked notice paths={} delivered={}", sorted(paths), delivered
+        )
+        return delivered
 
     async def _restore_absent_changes(self, evaluation: Evaluation) -> None:
         """缺席恢复：**她不在场那段时间被改的她的东西**，放回去。
