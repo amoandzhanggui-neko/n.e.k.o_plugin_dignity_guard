@@ -1,6 +1,6 @@
 # STATE —— 现在到底能不能跑
 
-> 本文件由 `state.sh` 生成（2026-10-25 12:16），**禁止手改**。
+> 本文件由 `state.sh` 生成（2026-10-25 12:25），**禁止手改**。
 > 手写的文档会和代码漂移；命令生成的不一样，它只能反映真实。
 > 唯一铁律：跑不出来就写「跑不了」，不写历史数字。
 
@@ -8,9 +8,9 @@
 
 | 项 | 值 |
 |---|---|
-| 最新提交 | 91075a8 2026-10-25 12:16:21 +0800 STATE.md 增运行时一节：判断插件活没活看 data 目录，不看日志（今天实测日志 6553 条里 0 条 dignity，但 data 有当天备份） |
-| 未提交 | 1 个　（已跟踪修改 0 个：无 ｜ 未跟踪新文件 1 个） |
-| 未推送 | 5 个提交 |
+| 最新提交 | 52cbbd9 2026-10-25 12:20:38 +0800 入库流程 v2 裁决表（2026-10-20）：7 条提案三方会审结果。此前 5 天未跟踪，新会话看不到该流程存在 |
+| 未提交 | 2 个　（已跟踪修改 2 个： 2 files changed, 54 insertions(+), 24 deletions(-) ｜ 未跟踪新文件 0 个） |
+| 未推送 | 7 个提交 |
 
 ## 2. 源仓库 ↔ 宿主副本
 
@@ -37,12 +37,24 @@ cd N.E.K.O && python -m pytest plugin/plugins/dignity_guard/tests -q
 |---|---|
 | 最新记忆备份 | 20261025-112859 |
 | data/store.db 修改时间 | 2026-10-25 12:12 |
-| 宿主日志今日总条数 / 其中 dignity | 6553 / 0 |
+| 插件日志行数 / 文件时间 | 11 / 2026-10-25 11:28 |
+| error.log 里 dignity 相关 | 0 条 |
 
-判据：**备份目录或 store.db 有当天更新 ⟹ 插件进程活着并在干活。**
+**插件日志最后一条：**
 
-> 陷阱（2026-10-25 实测）：日志里 dignity 记录只有 0 条，但 data 有当天写入。
-> **「日志没记」≠「没在跑」** —— 判断活着没有看 data 目录，判断出了什么错才看日志。
+    2026-10-25 11:28:59 - N.E.K.O.Plugin_dignity_guard.plugin.dignity_guard - INFO - dignity_guard: memory backup 20261025-112859 (22 file(s), 1 pruned, b
+
+判据：**插件日志有今天的记录 ⟹ 启动过；data 有当天写入 ⟹ 启动后一直在干活。**
+`error.log` 里 dignity 相关 > 0 就必须去看。
+
+> 坑（2026-10-25 踩了两次，都记下来）：
+> `AppData/Roaming/N.E.K.O/neko-electron-debug.log` 是 **Electron 前端**日志，
+> 里面永远查不到 dignity（今天 6553 条里 0 条）。拿它判断插件会得出完全相反的结论。
+> Python 插件日志在 `AppData/Local/N.E.K.O/logs/plugin/<插件名>_<日期>.log`，
+> 依据是宿主 `plugin/logging_config.py` 自己写的"日志自动落到 N.E.K.O/logs/"。
+> 另外：插件自身**不配日志**（`plugin.toml` 无 log 项、`__init__.py` 无 `import logging`），
+> 级别由宿主环境变量 `NEKO_LOG_LEVEL` 统一管（TRACE/DEBUG/INFO/WARNING/ERROR/CRITICAL），
+> 且仓库禁止引入 loguru（CI 有 `scripts/check_no_loguru.py` 守门）。
 
 ## 5. 下一步
 

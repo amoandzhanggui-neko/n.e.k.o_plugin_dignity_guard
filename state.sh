@@ -109,12 +109,16 @@ if [ -f "$CACHE" ] && [ -n "${test_when:-}" ]; then
 fi
 
 # ---- 3.5 运行时证据：插件在宿主里到底跑没跑 ----
-# 为什么必须有这一节（2026-10-25 实测踩到的陷阱）：
-#   宿主日志今天 6553 条，其中提到 dignity 的 0 条。只看日志会得出"插件没跑"，
-#   但 data 目录里今天 11:28:59 生成了记忆备份、store.db 12:12 还在写 ⟹ 插件明明在干活。
-#   「日志没记」≠「没在跑」。要判断活着没有，必须看 data 目录，不能只看日志。
+# 这一节踩过两次坑，都记在这儿，免得下次又错：
+#   坑① 我第一次查的是 AppData/Roaming/N.E.K.O/neko-electron-debug.log，今天 6553 条里 0 条 dignity，
+#        差点判定"插件没跑"。那是 **Electron 前端**日志，不是 Python 插件的日志。
+#   坑② 插件日志的真实位置是 AppData/Local/N.E.K.O/logs/plugin/，
+#        按插件名+日期分文件：N.E.K.O_Plugin_dignity_guard_YYYYMMDD.log。
+#        依据：宿主 plugin/logging_config.py 明确写"日志自动落到 N.E.K.O/logs/"。
+#   ⟹ 判据：看 data 目录有没有当天写入 + 插件自己那份日志最后一条是什么时候。
 RUNTIME_DATA="C:/Users/Administrator/AppData/Local/N.E.K.O/plugins/dignity_guard/data"
-HOSTLOG="C:/Users/Administrator/AppData/Roaming/N.E.K.O/neko-electron-debug.log"
+PLUGLOG_DIR="C:/Users/Administrator/AppData/Local/N.E.K.O/logs/plugin"
+ERRLOG="C:/Users/Administrator/AppData/Local/N.E.K.O/logs/N.E.K.O_Plugin_error.log"
 if [ -d "$RUNTIME_DATA" ]; then
   latest_bk="$(ls -1 "$RUNTIME_DATA/memory_backups" 2>/dev/null | sort | tail -1)"
   [ -z "$latest_bk" ] && latest_bk="（无备份目录）"
@@ -123,15 +127,17 @@ else
   latest_bk="（data 目录不存在 ⟹ 插件从未在此宿主写过东西）"
   db_mtime="—"
 fi
-if [ -f "$HOSTLOG" ]; then
-  today_s="$(date '+%Y-%m-%d')"
-  # 注意：grep -c 无匹配时**照样输出 0**，只是退出码为 1。
-  # 所以这里只能用 `|| true` 吞掉退出码，绝不能再 `|| echo 0` —— 那会多出一行 0。
-  log_all="$(grep -c "$today_s" "$HOSTLOG" 2>/dev/null || true)"; log_all="${log_all:-0}"
-  log_dg="$(grep "$today_s" "$HOSTLOG" 2>/dev/null | grep -c 'dignity' 2>/dev/null || true)"; log_dg="${log_dg:-0}"
+# 插件日志：今天的、昨天的都看一眼（跨零点时"今天没日志"不代表没跑）
+PLLOG="$PLUGLOG_DIR/N.E.K.O_Plugin_dignity_guard_$(date '+%Y%m%d').log"
+[ -f "$PLLOG" ] || PLLOG="$(ls -1t "$PLUGLOG_DIR"/N.E.K.O_Plugin_dignity_guard_2*.log 2>/dev/null | head -1)"
+if [ -n "$PLLOG" ] && [ -f "$PLLOG" ]; then
+  pl_n="$(wc -l < "$PLLOG" 2>/dev/null | tr -d ' ')"
+  pl_last="$(tail -1 "$PLLOG" 2>/dev/null | cut -c1-150)"
+  pl_when="$(date -r "$PLLOG" '+%Y-%m-%d %H:%M' 2>/dev/null)"
 else
-  log_all="?"; log_dg="?"
+  pl_n="0"; pl_last="（找不到插件日志）"; pl_when="—"
 fi
+err_dg="$(grep -ci 'dignity' "$ERRLOG" 2>/dev/null || true)"; err_dg="${err_dg:-0}"
 
 # ---- 4. 写盘 ----
 cat > "$OUT" <<EOF
@@ -174,12 +180,24 @@ $TEST_CMD
 |---|---|
 | 最新记忆备份 | $latest_bk |
 | data/store.db 修改时间 | $db_mtime |
-| 宿主日志今日总条数 / 其中 dignity | $log_all / $log_dg |
+| 插件日志行数 / 文件时间 | $pl_n / $pl_when |
+| error.log 里 dignity 相关 | $err_dg 条 |
 
-判据：**备份目录或 store.db 有当天更新 ⟹ 插件进程活着并在干活。**
+**插件日志最后一条：**
 
-> 陷阱（2026-10-25 实测）：日志里 dignity 记录只有 $log_dg 条，但 data 有当天写入。
-> **「日志没记」≠「没在跑」** —— 判断活着没有看 data 目录，判断出了什么错才看日志。
+    $pl_last
+
+判据：**插件日志有今天的记录 ⟹ 启动过；data 有当天写入 ⟹ 启动后一直在干活。**
+\`error.log\` 里 dignity 相关 > 0 就必须去看。
+
+> 坑（2026-10-25 踩了两次，都记下来）：
+> \`AppData/Roaming/N.E.K.O/neko-electron-debug.log\` 是 **Electron 前端**日志，
+> 里面永远查不到 dignity（今天 6553 条里 0 条）。拿它判断插件会得出完全相反的结论。
+> Python 插件日志在 \`AppData/Local/N.E.K.O/logs/plugin/<插件名>_<日期>.log\`，
+> 依据是宿主 \`plugin/logging_config.py\` 自己写的"日志自动落到 N.E.K.O/logs/"。
+> 另外：插件自身**不配日志**（\`plugin.toml\` 无 log 项、\`__init__.py\` 无 \`import logging\`），
+> 级别由宿主环境变量 \`NEKO_LOG_LEVEL\` 统一管（TRACE/DEBUG/INFO/WARNING/ERROR/CRITICAL），
+> 且仓库禁止引入 loguru（CI 有 \`scripts/check_no_loguru.py\` 守门）。
 
 ## 5. 下一步
 
