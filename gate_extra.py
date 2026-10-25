@@ -650,6 +650,49 @@ def check_doc_anchors() -> None:
         )
 
 
+# ────────── 完工定义第 4 条②：此刻还活着吗 ──────────
+def check_alive() -> None:
+    """完工定义第 4 条②：插件**此刻**还活着吗。
+
+    ## 为什么这条要放进闸，而不只放在 state.sh
+
+    会审跑的是 `gate_extra.py` + `neko_review_gate.js`；`state.sh` 是给人看的状态板。
+    判据只在状态板上 = **会审时可能漏**。而这条判据存在的理由就是"漏了会真假绿"。
+
+    ## 为什么结论是**黄**不是红
+
+    插件没在跑 ≠ 代码有问题。把它变红，会逼人为了过闸去起宿主 ——
+    拿"起宿主"换"过闸"，本末倒置。但会审时**必须看得见**，所以不能沉默。
+
+    ## 三种"不适用"要跳过，不能判红
+
+    别的机器 clone 下来跑闸时没有宿主日志目录（`no_host`）。
+    那种情况判红会让这条判据在 CI 上永远红，然后被人连真红一起关掉。
+    """
+    print("\n=== 完工定义第 4 条②：此刻还活着吗 ===")
+    try:
+        sys.path.insert(0, str(ROOT))
+        import liveness_check as lc
+    except Exception as exc:  # noqa: BLE001
+        yellow(f"liveness_check 载入失败（{exc}），本条无法核对")
+        return
+
+    v = lc.evaluate()
+    # `v.line()` 自带 `[√] ` / `[x] ` 前缀（状态板要 grep 它）。这里要套自己的
+    # ok/yellow 标记，所以先剥掉 —— 不剥就会出现「[√] [√] 在跑」这种双符号。
+    body = re.sub(r"^\[[√x—]\]\s*", "", v.line())
+    if v.state == "no_host":
+        print(f"  [—] {body}")
+        return
+    if v.state == "running":
+        ok(body)
+        return
+    yellow(
+        f"{body} ⟹ 不影响代码结论（插件没在跑 ≠ 代码有问题），"
+        "但会审时必须知道：这段时间实际没人守"
+    )
+
+
 def main() -> int:
     want = set(a for a in sys.argv[1:] if a.startswith("--"))
     run_all = not want
@@ -667,6 +710,8 @@ def main() -> int:
         check_zero_triple()
     if run_all or "--doc" in want:
         check_doc_anchors()
+    if run_all or "--alive" in want:
+        check_alive()
 
     print("\n" + "-" * 56)
     if RED:
