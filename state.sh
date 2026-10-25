@@ -21,7 +21,14 @@ SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOST_ROOT="C:/Users/Administrator/.workbuddy/neko_test/N.E.K.O"
 HOST_PLUGIN="$HOST_ROOT/plugin/plugins/dignity_guard"
 OUT="$SRC/STATE.md"
-CACHE="$SRC/.state_last_test"
+# 缓存必须放仓库**外面**。
+# 原因（2026-10-25 实测）：neko_review_gate.js 的受控集是 default-deny + readdirSync 递归全收，
+# **它不认 .gitignore** —— 除文档白名单外，所有文件都算受控。
+# 所以缓存只要留在仓库里，每跑一次 state.sh 它的哈希就变 ⟹ 闸必红，而且红得莫名其妙。
+# 正确的解法不是去改闸（那要会审+stamp），而是让受控集里压根没有这个缓存。
+CACHE_DIR="${HOME:-${USERPROFILE:-/c/Users/Administrator}}/.cache/neko-dignity-guard"
+mkdir -p "$CACHE_DIR" 2>/dev/null || true
+CACHE="$CACHE_DIR/last_test.txt"
 
 RUN_TEST=0
 [ "${1:-}" = "--test" ] && RUN_TEST=1

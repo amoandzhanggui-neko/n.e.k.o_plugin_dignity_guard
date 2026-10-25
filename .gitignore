@@ -3,8 +3,9 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-# state.sh 的测试结果缓存：每次跑都变，不入库（STATE.md 才是要留的那份）
-.state_last_test
+# state.sh 的测试结果缓存**不在仓库里**，已挪到 ~/.cache/neko-dignity-guard/。
+# 原因：neko_review_gate.js 的受控集是 readdir 全收、**不认 .gitignore**，
+# 缓存只要留在仓库，每跑一次哈希就变 ⟹ 闸必红。所以缓存放仓库外，受控集里压根没有它。
 .venv/
 venv/
 vendor/
