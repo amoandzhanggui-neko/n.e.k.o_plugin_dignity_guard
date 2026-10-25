@@ -1,0 +1,90 @@
+{
+ "blocks": {
+  "B1-guard": {
+   "contracts": [
+    "C-REV-1",
+    "C-REV-2"
+   ],
+   "depends": [
+    "B2-host"
+   ],
+   "files": [
+    "settings_guard.py"
+   ],
+   "hot": false,
+   "name": "设置守卫与回滚"
+  },
+  "B2-host": {
+   "contracts": [],
+   "depends": [],
+   "files": [
+    "main_server_client.py"
+   ],
+   "hot": false,
+   "name": "宿主通信（读写别人地盘）"
+  },
+  "B3-memory": {
+   "contracts": [],
+   "depends": [
+    "B2-host"
+   ],
+   "files": [
+    "memory_backup.py",
+    "memory_guard.py"
+   ],
+   "hot": false,
+   "name": "记忆备份与守卫"
+  },
+  "B4-report": {
+   "contracts": [],
+   "depends": [
+    "B2-host"
+   ],
+   "files": [
+    "diagnostics.py",
+    "feedback.py"
+   ],
+   "hot": false,
+   "name": "诊断与反馈（对外出口）"
+  },
+  "B5-ui": {
+   "contracts": [],
+   "depends": [],
+   "files": [
+    "ui/panel.tsx",
+    "ui/onboarding.tsx"
+   ],
+   "hot": false,
+   "name": "前端面板"
+  },
+  "B6-entry": {
+   "contracts": [],
+   "depends": [
+    "B1-guard",
+    "B2-host",
+    "B3-memory",
+    "B4-report",
+    "B5-ui"
+   ],
+   "files": [
+    "__init__.py"
+   ],
+   "hot": true,
+   "name": "入口 / 生命周期 / 会话"
+  }
+ },
+ "file_owner": {
+  "__init__.py": "B6-entry",
+  "diagnostics.py": "B4-report",
+  "feedback.py": "B4-report",
+  "main_server_client.py": "B2-host",
+  "memory_backup.py": "B3-memory",
+  "memory_guard.py": "B3-memory",
+  "settings_guard.py": "B1-guard",
+  "ui/onboarding.tsx": "B5-ui",
+  "ui/panel.tsx": "B5-ui"
+ },
+ "hash": "ffb560d1b9d90099",
+ "max_blocks": 6,
+ "source": "块清单-20261025.md"
+}
