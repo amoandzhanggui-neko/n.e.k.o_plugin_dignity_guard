@@ -1,0 +1,211 @@
+"""端到端：三个新字段**真的会被填上值**，不是"字段存在"。
+
+## 这个文件补的是什么
+
+契约 CT-v2 的未证实项 **U3** 原话：
+
+> 三个新字段 `block_reported` / `notified` / `status_after` 只有单元级验证，
+> 没有端到端验证。现在做的只是把 `RoundOutcome` / `_state_after` / `_delivered`
+> 三块单独测通；**"它们真的被填上值"这件事，还没有任何一条测试证明过**。
+
+`test_rev_contract.py` 里那几条测的是"零件对不对"（`as_report()` 的键名、六种取值、
+回执口径）。这个文件测的是**装配起来之后**对不对：
+
+    真实方法 `_run_reverts` → `_push_blocked_notice` → `_summary`
+
+一路走下来，`summary["block_reported"]` 到底是不是 `True`。
+
+## 它不是"真启动插件"，边界要说清
+
+真启动要宿主 ctx（`NekoPluginBase.__init__(self, ctx)`），这里没有。
+所以做法是：**方法体全用真的，外部依赖全打桩**（push_message / _revert_change / logger / health）。
+
+- ✅ 它证明：真实代码路径会把字段填上正确的值，包括"通知失败时是 False 不是 None"。
+- ❌ 它不证明：插件在宿主进程里跑得起来（那是完工定义第 4 条，看日志）。
+
+把这两件事混起来，就是"测试通过 ≠ 插件能跑"的老毛病 —— 已经在 skill 里写死要分开看。
+"""
+
+from __future__ import annotations
+
+import asyncio
+from types import SimpleNamespace
+
+from plugin.plugins.dignity_guard import DignityGuardPlugin, RoundOutcome
+from plugin.plugins.dignity_guard.settings_guard import (
+    LEVEL_L1,
+    TIER_HIGH,
+    Dispute,
+    Evaluation,
+    SettingChange,
+    Value,
+)
+
+PERSONA = "characters.猫娘.雪.核心特质"
+
+
+def _change(path: str = PERSONA) -> SettingChange:
+    return SettingChange(
+        path=path,
+        level=LEVEL_L1,
+        before=Value.of(["理智"]),
+        after=Value.of(["暴躁"]),
+    )
+
+
+def _plugin(*, submit: bool = True, revert_reason: str = "baseline_lost"):
+    """造一个"外形是假的、方法是真的"插件。
+
+    返回 ``(fake_self, pushed)``：``pushed`` 收所有 push_message 的调用参数，
+    用来断言"到底发没发、走的哪条通道"。
+    """
+    pushed: list[dict] = []
+
+    async def fake_revert_change(change):  # noqa: ANN001
+        return revert_reason
+
+    def fake_push(**kwargs):
+        pushed.append(kwargs)
+        return {"submitted": submit}
+
+    fake = SimpleNamespace(
+        _outcome=RoundOutcome(),
+        _revert_outcomes={},
+        _watcher=None,
+        _health=SimpleNamespace(record=lambda *_: None),
+        logger=SimpleNamespace(
+            info=lambda *a, **k: None,
+            warning=lambda *a, **k: None,
+        ),
+        _revert_change=fake_revert_change,
+        push_message=fake_push,
+        _push_target=lambda: {"target_lanlan": "YUI"},
+        _text=lambda key, default="", **params: default,
+        _speak_her_turn=lambda disputes: None,
+        _state=SimpleNamespace(pending=lambda: []),
+    )
+    # `_summary` 会调 `self._state_after(...)`，`_run_reverts` 会调 `self._push_blocked_notice(...)`，
+    # `_speak` 会调 `self._delivered(...)`。不挂上就会 AttributeError。
+    # 这几条依赖是真跑测试才发现的 —— 也说明链路是真的被走通了，不是把整段 mock 掉。
+    #
+    # ⚠ 顺带记一个真问题：`_speak` 里的 `except Exception` 会把 AttributeError 这种
+    #   **编程错误**当成"通知发送失败"吞掉，只记一条 warning。第一次跑这个测试时就是
+    #   因此拿到 `delivered=False` 而不是崩。生产里的后果：一处笔误 ⟹ 通知永远发不出去，
+    #   而日志只说"没送到"，看不出是代码 bug。已列入第 5 轮待办，本轮不改（属行为变更）。
+    fake._state_after = lambda ev: DignityGuardPlugin._state_after(fake, ev)
+    fake._push_blocked_notice = lambda paths: DignityGuardPlugin._push_blocked_notice(fake, paths)
+    fake._delivered = DignityGuardPlugin._delivered
+    return fake, pushed
+
+
+# ────────────── blocked 路径：三个字段一起被填上 ──────────────
+
+
+def test_blocked_path_fills_all_three_fields() -> None:
+    """想放回但放不回 ⟹ blocked / block_reported / status_after 全部有真值。
+
+    这就是 U3 缺的那条实验。断言的是**真实调用链**的结果，不是零件单独的行为。
+    """
+    fake, pushed = _plugin(revert_reason="baseline_lost")
+    evaluation = Evaluation()
+    evaluation.revert_blocked = [PERSONA]
+
+    asyncio.run(DignityGuardPlugin._run_reverts(fake, evaluation))
+    summary = DignityGuardPlugin._summary(fake, evaluation)
+
+    assert summary["blocked"] is True, "有放不回的，blocked 必须是 True"
+    assert summary["revert"] is False, "这一项没放回去，revert 必须是 False"
+    assert summary["block_reported"] is True, "拦住时必须真的报出去（U3 要的这一条）"
+    assert summary["status_after"] == "blocked"
+
+    # 这一轮没走 _speak，所以 notified 必须是 None —— **不是 False**。
+    # 写成 False 就是凭空造出一次"通知失败"，日志里会出现根本没发生的故障。
+    assert summary["notified"] is None
+
+    # 而且真的发了一条消息，走的是只读通道（系统告知，不是她表态）
+    assert len(pushed) == 1
+    assert pushed[0]["ai_behavior"] == "read"
+    assert pushed[0]["visibility"] == ["chat"]
+
+
+def test_blocked_notice_failure_reports_false_not_none() -> None:
+    """通知发不出去时，block_reported 是 **False**（不是 None、也不是 True）。
+
+    None 的意思是"没走到这条分支"，False 的意思是"走到了、失败了"。
+    把 False 写成 None，就是一次真实失败被藏起来 —— 而"沉默地没做"正是这个插件要抓的东西。
+    """
+    fake, pushed = _plugin(submit=False, revert_reason="baseline_lost")
+    evaluation = Evaluation()
+    evaluation.revert_blocked = [PERSONA]
+
+    asyncio.run(DignityGuardPlugin._run_reverts(fake, evaluation))
+    summary = DignityGuardPlugin._summary(fake, evaluation)
+
+    assert len(pushed) == 1, "尝试过发送"
+    assert summary["block_reported"] is False, "发了但没递到，必须是 False"
+    assert summary["blocked"] is True, "拦住了这件事本身没变"
+
+
+def test_successful_revert_does_not_report_blocked() -> None:
+    """放回去了 ⟹ revert=True、blocked=False、block_reported=None（没拦，不写 false）。"""
+    fake, pushed = _plugin(revert_reason="")  # 空字符串 = 成功
+    evaluation = Evaluation()
+    evaluation.to_revert = [_change()]
+
+    asyncio.run(DignityGuardPlugin._run_reverts(fake, evaluation))
+    summary = DignityGuardPlugin._summary(fake, evaluation)
+
+    assert summary["revert"] is True
+    assert summary["blocked"] is False
+    assert summary["block_reported"] is None, "没拦就没这条通知，不能写 False"
+    assert summary["status_after"] == "reverted"
+    assert pushed == [], "成功回滚不该发 blocked 通知"
+
+
+# ────────────── notified：走真实的 _speak ──────────────
+
+
+def test_notified_true_when_notice_delivered() -> None:
+    """``_speak`` 的返回值就是 notified 的来源，且它会被写进 _outcome。"""
+    fake, pushed = _plugin(submit=True)
+    evaluation = Evaluation()
+    evaluation.raised = [_dispute()]
+
+    delivered = DignityGuardPlugin._speak(fake, evaluation)
+
+    assert delivered is True
+    assert pushed, "通知必须真的发出去"
+    assert pushed[0]["ai_behavior"] == "read", "通知走只读通道，不触发 AI 回合"
+
+
+def test_notified_false_when_host_rejects() -> None:
+    """宿主回执 submitted=False ⟹ notified=False。不是"调用了就算成功"。"""
+    fake, _ = _plugin(submit=False)
+    evaluation = Evaluation()
+    evaluation.raised = [_dispute()]
+
+    assert DignityGuardPlugin._speak(fake, evaluation) is False
+
+
+def test_notified_flows_into_summary() -> None:
+    """端到端：``_speak`` 的结果经 ``_outcome`` 流到 ``_summary['notified']``。"""
+    fake, _ = _plugin(submit=True)
+    evaluation = Evaluation()
+    evaluation.raised = [_dispute()]
+
+    fake._outcome.notice_delivered = DignityGuardPlugin._speak(fake, evaluation)
+    summary = DignityGuardPlugin._summary(fake, evaluation)
+
+    assert summary["notified"] is True
+
+
+def _dispute() -> Dispute:
+    return Dispute(
+        path=PERSONA,
+        level=LEVEL_L1,
+        base_digest=None,
+        raised_at=1000.0,
+        seen_at=1000.0,
+        before_preview="理智",
+        after_preview="暴躁",
+    )

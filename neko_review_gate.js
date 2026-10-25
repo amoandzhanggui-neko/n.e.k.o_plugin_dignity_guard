@@ -40,7 +40,20 @@ const DOC_WHITELIST = /\.(md|log)$|\.bak[^/]*$/i;
 
 function sha16(p) {
   try {
-    return crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex').slice(0, 16);
+    // ★ 2026-10-25 修：**先归一化行尾再算哈希**，不直接拿工作区字节去算。
+    //
+    // 为什么必须改（实测，不是推测）：
+    //   仓库存的是 LF（.gitattributes 保证），但 Windows 上 core.autocrlf=true，
+    //   而且在加 .gitattributes **之前** checkout 过的文件，工作区至今还是 CRLF。
+    //   于是同一个仓库里两种行尾并存：__init__.py 工作区 CRLF、CT-v2.md 是 LF。
+    //   直接读字节算哈希 ⟹ __init__.py 得 d2d4c25d…，而 git blob 是 80f06b9c…，
+    //   **同一份代码两个哈希**。台账里存的又是工作区哈希 ⟹ 换台机器全部对不上，
+    //   判红 7 会把"什么都没改"报成"全改了"，然后被人当噪声关掉。
+    //
+    // 归一化到 LF 之后：工作区怎么变都不影响结果，且与 git blob 一致。
+    // 用 latin1 是为了逐字节保真（二进制文件不能被 UTF-8 解码损坏）。
+    const raw = fs.readFileSync(p).toString('latin1').replace(/\r\n/g, '\n');
+    return crypto.createHash('sha256').update(Buffer.from(raw, 'latin1')).digest('hex').slice(0, 16);
   } catch (e) {
     return null;
   }

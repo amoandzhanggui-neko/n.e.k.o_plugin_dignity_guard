@@ -111,17 +111,23 @@
   交到了用户眼前"——插件看不到用户的屏幕。所以 `notified=true` 只等于"宿主收下了"。
 - **U2** C-REV-2 的 `block_reported`：**该路径不产生 blocked，恒为 null**（设计如此，
   按 v2 第 7 条进未证实项）。它不是"没做"，是"这条路走不到"。
-- **U3（新增 2026-10-25 晚）** 三个新字段 `block_reported` / `notified` / `status_after`
-  **只有单元级验证，没有端到端验证**。缺的那条实验很具体：
+- **U3（2026-10-25 晚，已收窄）** 三个新字段 `block_reported` / `notified` / `status_after`
+  **已有半端到端验证**：`tests/test_outcome_e2e.py`（6 条）走的是真实调用链
+  `_run_reverts()` → `_push_blocked_notice()` → `_summary()` / `_speak()`，
+  方法体全真的，只把外部依赖（`push_message` / `_revert_change` / logger / health）打桩。
+  断言的是 `summary["block_reported"] is True/False/None` 三态、`status_after` 的推导、
+  以及 `notified` 从 `_speak` 返回值流进 summary。
 
-  ```
-  启动插件 → 让一项 L1 设置在她声明之后被改 → 高档位 → 制造"证明不了原值还是她的"
-  → 断言 summary["block_reported"] is True 且 summary["status_after"] == "blocked"
-  ```
+  **剩下的边界（必须说清，别把它当成"全验过了"）**：
+  它不证明"插件在宿主进程里跑得起来"。那不属于契约字段的正确性，
+  属于**完工定义第 4 条**（看 `logs/plugin/<名>_<日期>.log` 有没有当天启动记录）。
+  把这两件事混起来，就是 skill §2.0 里写死的"测试通过 ≠ 插件能跑"。
 
-  现在做的只是把 `RoundOutcome` / `_state_after` / `_delivered` 三块单独测通；
-  **"它们真的被填上值"这件事，还没有任何一条测试证明过**。
-  在跑通上面那条之前，对外只能说"字段有了"，不能说"效果验证过了"。
+  仍未被任何测试覆盖的一处：`_speak()` 里的 `except Exception` 会把
+  `AttributeError` / `TypeError` 这类**编程错误**当成"通知发送失败"吞掉（只记 warning）。
+  实测踩到过：fake 少挂一个方法 ⟹ 拿到 `delivered=False` 而不是崩。
+  生产后果是一处笔误让通知永远发不出去、日志只说"没送到"。
+  已列入 T4，本轮不改（改它是行为变更，要区分外部故障与代码 bug）。
 
 ---
 
@@ -173,9 +179,15 @@ cd N.E.K.O && python -m pytest plugin/plugins/dignity_guard/tests/ -q -k "rev"
 - `source`：`_revert_source()` 是**一个推导过程**（证明这个值还是不是她的），
   不是一个字符串标签。把它压成一个字符串，等于把推导降级成标签。
 
-⟹ **C-REV-1 / C-REV-2 现在的分类是「已实现（单元级），端到端未证实」**，
-未证实项记为 **U3**。不写"完全已实现"，因为没有任何一条测试真正启动插件、
-制造一次回滚失败、再从 `summary` 里读出 `block_reported=true`。
+⟹ **C-REV-1 / C-REV-2 的分类：已实现**（单元级 + 半端到端，见 U3 的边界说明）。
+
+"半端到端"指 `tests/test_outcome_e2e.py` 走的是真实方法体、只桩外部依赖 ——
+它证明**字段真的会被填上值**（含 `False` 与 `None` 的区别），
+不证明插件能在宿主进程里跑起来（那是完工定义第 4 条，看日志）。
+
+`satisfied` 与 `不满足` 之间的界线在这里：
+- ✅ 契约声明的 7 个字段都有实现、都有测试、都验过"真会被填值"
+- ❌ 插件能否在宿主里跑 —— **不在这条契约的范围内**，别拿它顶替
 
 `tests/test_rev_contract.py` 里那条旧测试（原来叫
 `test_rev_contract_missing_out_fields_are_still_missing`）**已翻面**成

@@ -95,15 +95,20 @@ def sha(*parts: str) -> str:
 
 
 def file_hash16(path: Path) -> str:
-    """与 ``neko_review_gate.js`` **同一口径**：``sha256(文件字节).hex()[:16]``。
+    """与 ``neko_review_gate.js`` **同一口径**：``sha256(归一化到 LF 的字节).hex()[:16]``。
 
     为什么必须逐字对齐：台账里的哈希是闸算的，这里若用 md5 或不同截断，
     两边永远不相等 ⟹ 判红 7 会把"什么都没改"判成"改了很多"，
     然后被当成噪声关掉。口径不一致的判定，比没有判定更坏。
 
-    已实测核对过（``.gitattributes``：Python 与台账同为 ``fd4e865bdc7ec81a``）。
+    ★ 2026-10-25 加归一化。之前直接算工作区字节，而本仓库里**两种行尾并存**
+    （`.gitattributes` 加之前 checkout 的文件是 CRLF，之后写的是 LF）⟹
+    同一个文件"工作区哈希"与"git blob 哈希"不同，换台机器台账全部对不上。
+    归一化到 LF 后：与工作区行尾无关、与 git blob 一致、跨机器可比。
+
+    实测对齐（``__init__.py``）：归一化后 = git blob = ``80f06b9c2372d399``。
     """
-    return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()[:16]
 
 
 def ledger_files() -> dict[str, str]:
@@ -529,6 +534,71 @@ def check_zero_triple() -> None:
         ok("三个数不是全零，不构成空转")
 
 
+# ────────────── 完工定义第 11 条：效果逻辑图的锚点 ──────────────
+def check_doc_anchors() -> None:
+    """判「效果逻辑图」还在不在描述当前代码。
+
+    两件事，方向相反，缺一件都补不上这个洞：
+
+      **正向** —— 图里每个 ``[锚: 文件::符号]`` 引用的符号必须还在。
+      代码改名/删函数 ⟹ 锚点失效 ⟹ 红。这是"图说的东西代码里还有没有"。
+
+      **逆向** —— 实现文件变了，但图没跟着变 ⟹ 黄。
+      锚点全绿不代表图还对：符号还在、行为改了，图就是错的，而锚点看不出来。
+      这条只提醒（黄），因为纯注释/排版的改动也会命中，不该阻断。
+
+    ⚠ 锚点管不到的两件事（写在这里免得以后误以为它万能）：
+      ① 注释里的内容（比如三档矩阵那张表是注释，没有符号可锚）；
+      ② 语义是否还对（符号在、意思变了）。
+      这两件只能靠会审看 diff —— 机器只能保证"引用的东西存在"。
+    """
+    print("\n=== 完工定义第 11 条：效果逻辑图 ===")
+    try:
+        sys.path.insert(0, str(ROOT))
+        import doc_anchor_check as dac
+    except Exception as exc:  # noqa: BLE001
+        yellow(f"锚点检查器载入失败（{exc}），本条无法核对")
+        return
+
+    docs = sorted(ROOT.glob(dac.DOC_GLOB))
+    if not docs:
+        yellow(f"没有 {dac.DOC_GLOB} —— 按完工定义第 11 条这属于缺项")
+        return
+
+    total = 0
+    bad = 0
+    for doc in docs:
+        text = doc.read_text(encoding="utf-8", errors="replace")
+        hits = dac.ANCHOR_RE.findall(text)
+        if not hits:
+            red(f"{doc.name} 零锚点 —— 这份图没法核对（第 11 条判据③）")
+            bad += 1
+            continue
+        seen: dict[tuple[str, str], list[int]] = {}
+        for lineno, line in enumerate(text.split("\n"), start=1):
+            for file, symbol in dac.ANCHOR_RE.findall(line):
+                seen.setdefault((file, symbol), []).append(lineno)
+        for (file, symbol), lines in sorted(seen.items()):
+            total += 1
+            reason = dac.check_anchor(file, symbol)
+            if reason:
+                where = "、".join(f"第 {n} 行" for n in lines)
+                red(f"{doc.name} {where} [锚: {file}::{symbol}] 失效 —— {reason}")
+                bad += 1
+    if not bad:
+        ok(f"{total} 个锚点全部有效（{len(docs)} 份图）")
+
+    # 逆向：实现动了而图没动 ⟹ 复核提醒
+    moved = changed_since_ledger() | changed_files()
+    impl = sorted(p for p in moved if p in {"__init__.py", "settings_guard.py"})
+    doc_moved = [p for p in moved if Path(p).name.startswith("效果逻辑图-")]
+    if impl and not doc_moved:
+        yellow(
+            f"{impl} 变了，但效果逻辑图没跟着改 ⟹ 按第 11 条必须人工复核图是否仍准确"
+            "（锚点只能证明符号还在，证明不了意思没变）"
+        )
+
+
 def main() -> int:
     want = set(a for a in sys.argv[1:] if a.startswith("--"))
     run_all = not want
@@ -544,6 +614,8 @@ def main() -> int:
         check_contract_churn()
     if run_all or "--zero" in want:
         check_zero_triple()
+    if run_all or "--doc" in want:
+        check_doc_anchors()
 
     print("\n" + "-" * 56)
     if RED:
