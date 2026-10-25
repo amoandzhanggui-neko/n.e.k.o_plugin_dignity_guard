@@ -218,6 +218,7 @@ def test_programming_error_recorded_as_code_error() -> None:
     fake.logger = SimpleNamespace(
         info=lambda *a, **k: None,
         warning=lambda *a, **k: None,
+        error=lambda *a, **k: None,
         exception=lambda *a, **k: None,
     )
 
@@ -240,6 +241,7 @@ def test_external_failure_recorded_as_not_delivered() -> None:
     fake.logger = SimpleNamespace(
         info=lambda *a, **k: None,
         warning=lambda *a, **k: None,
+        error=lambda *a, **k: None,
         exception=lambda *a, **k: None,
     )
 
@@ -262,6 +264,7 @@ def test_speak_programming_error_is_not_mistaken_for_delivery_failure() -> None:
     fake.logger = SimpleNamespace(
         info=lambda *a, **k: None,
         warning=lambda *a, **k: None,
+        error=lambda *a, **k: None,
         exception=lambda *a, **k: None,
     )
     # 拆掉 _delivered，让 _speak 内部抛 AttributeError
@@ -274,6 +277,52 @@ def test_speak_programming_error_is_not_mistaken_for_delivery_failure() -> None:
 
     assert delivered is False, "仍然不抛出去 —— 不能打死整轮轮询"
     assert records == ["notice_code_error"], "但必须记成 code_error，不能混成 not_delivered"
+
+
+# ────── T9：`logger.exception` 不能在没有 except 的地方假装带堆栈 ──────
+
+
+def _logger_probe():
+    """返回 (fake, errors, exceptions)：两个列表分别收 logger.error / logger.exception 的调用。"""
+    errors: list[tuple] = []
+    exceptions: list[tuple] = []
+    fake, _ = _plugin()
+    fake._health = SimpleNamespace(record=lambda k: None)
+    fake.logger = SimpleNamespace(
+        info=lambda *a, **k: None,
+        warning=lambda *a, **k: None,
+        error=lambda *a, **k: errors.append(a),
+        exception=lambda *a, **k: exceptions.append(a),
+    )
+    return fake, errors, exceptions
+
+
+def test_inside_except_block_uses_exception_logger() -> None:
+    """在 `except` 块内调用 ⟹ 用 `logger.exception`（有堆栈，能看出是哪一行）。"""
+    fake, errors, exceptions = _logger_probe()
+
+    try:
+        raise AttributeError("boom")
+    except AttributeError as exc:
+        DignityGuardPlugin._note_delivery_failure(fake, "notice", exc)
+
+    assert len(exceptions) == 1, "except 块内应该用 logger.exception"
+    assert errors == []
+
+
+def test_outside_except_block_degrades_to_error() -> None:
+    """在 `except` 块外调用 ⟹ 降级成 `logger.error` 并写明没有堆栈。
+
+    `logger.exception` 在 except 外只会打出 `NoneType: None` ——
+    看起来像带全了现场，实际什么都带不到。**那比不记更糟**，因为它让人以为查过了。
+    """
+    fake, errors, exceptions = _logger_probe()
+
+    DignityGuardPlugin._note_delivery_failure(fake, "notice", AttributeError("boom"))
+
+    assert exceptions == [], "没有活着的异常时不该调 logger.exception"
+    assert len(errors) == 1, "应降级成 logger.error"
+    assert "outside its except block" in errors[0][0], "且必须在文案里说明，别让人以为漏了堆栈"
 
 
 def _dispute() -> Dispute:

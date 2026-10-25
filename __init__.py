@@ -24,6 +24,7 @@ import json
 import os
 import platform
 import secrets
+import sys
 import threading
 import time
 from pathlib import Path
@@ -378,6 +379,14 @@ class RoundOutcome:
 #:
 #: 故意只收这四个。``KeyError`` / ``IndexError`` 也可能是"宿主返回的结构变了"，
 #: 那是**我们没料到**而不是**我们写错了**，归到外部故障那边更诚实。
+#:
+#: ★ 2026-10-25 查过真实日志作为依据（T7），不是凭感觉定的：
+#:   `AppData/Local/N.E.K.O/logs/plugin/` 下 dignity 的全部日志里，出现过的异常
+#:   **只有 ``TypeError`` 一种，2 次** —— 都是 `push_message` 参数名传错
+#:   （把 ``target_lanlan`` 写成 ``lanlan_name``）。``KeyError`` / ``IndexError`` **零实例**。
+#:
+#:   ⟹ 结论是**不扩展**。多收一个类型要有证据；"它也可能是 bug"不是证据，
+#:     那是想象。真出现了再收，并且收的时候**同时补一条测试**把它钉住。
 PROGRAMMING_ERRORS = (AttributeError, TypeError, NameError, UnboundLocalError)
 
 
@@ -1295,13 +1304,25 @@ class DignityGuardPlugin(NekoPluginBase):
         """
         if isinstance(exc, PROGRAMMING_ERRORS):
             self._health.record(f"{purpose}_code_error")
-            # exception 而不是 warning：带堆栈，一眼看出是代码写错
-            self.logger.exception(
-                "dignity_guard: {} failed with a programming error "
-                "(this is our bug, not the host's): {}",
-                purpose,
-                exc,
-            )
+            # ★ T9：`logger.exception` 只在 `except` 块内才有堆栈。
+            #   这里显式核对"当前正在处理的异常是不是传进来这个"——
+            #   不核对的后果很糟：将来有人把这个方法用到 `except` 之外，
+            #   会得到一条**没有堆栈的 exception 日志**，看起来像带全了现场，
+            #   实际什么都没有。那比不记还坏，因为它让人以为查过了。
+            if sys.exc_info()[1] is exc:
+                self.logger.exception(
+                    "dignity_guard: {} failed with a programming error "
+                    "(this is our bug, not the host's): {}",
+                    purpose,
+                    exc,
+                )
+            else:
+                self.logger.error(
+                    "dignity_guard: {} failed with a programming error "
+                    "(called outside its except block, so there is no traceback): {}",
+                    purpose,
+                    exc,
+                )
             return
         self._health.record(f"{purpose}_not_delivered")
         self.logger.warning("dignity_guard: {} not delivered: {}", purpose, exc)
