@@ -16,3 +16,10 @@ seam/** text eol=lf
 *.md   text eol=lf
 *.toml text eol=lf
 *.json text eol=lf
+
+# ★ 2026-10-25 补：原来漏了 .sh，于是 state.sh 提交时 git 报
+#   "LF will be replaced by CRLF"（core.autocrlf=true 的默认行为），
+#   仓库里存的行尾就由 checkout 那台机器决定。
+#   哈希已经归一化、跨机器比不会错，但脚本**内容**本身该是 LF：
+#   bash 读到 CRLF 会在某些语法上出怪事（`\r` 被当成行尾的一部分）。
+*.sh   text eol=lf
