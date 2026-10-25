@@ -422,6 +422,11 @@ class DignityGuardPlugin(NekoPluginBase):
         #: Outcome of the most recent revert attempt, per path. ``""`` means the
         #: value went back; anything else is a reason code the panel translates.
         self._revert_outcomes: dict[str, str] = {}
+        # 目标会话名（宿主 EventBus 要求 lanlan_name）。
+        # 启动后从 /api/characters 的「当前猫娘」读一次并缓存。
+        # 不传的话宿主会拿 None 去做"唯一已连接会话"兜底：0 个连接丢、≥2 个也丢
+        # （2026-10-18 实测：13:54 rerouted 送达 / 17:47 dropped 丢弃）。
+        self._lanlan_name: str = ""
         # Replaces an ``asyncio.Lock``: see ``_begin_exclusive`` for why a lock
         # with no event-loop affinity is the correct instrument here.
         self._busy = False
@@ -896,6 +901,7 @@ class DignityGuardPlugin(NekoPluginBase):
             )
 
         try:
+            await self._ensure_lanlan_name(client)
             try:
                 evaluation = await watcher.poll(force=force)
             except MainServerUnreachable as exc:
@@ -1075,12 +1081,21 @@ class DignityGuardPlugin(NekoPluginBase):
             )
         notice.append(self._text("speech.notice.outro", default=DEFAULT_SPEECH_NOTICE_OUTRO))
         try:
-            self.push_message(
+            receipt = self.push_message(
+                **self._push_target(),
                 parts=[{"type": "text", "text": "\n".join(notice)}],
                 visibility=["chat"],
                 ai_behavior="read",
                 coalesce_key="dignity_guard.settings_notice",
                 metadata={"description": "dignity_guard.settings_notice"},
+            )
+            # 可观测产物（2026-10-18）：证明"检测到 + 通知已投递"这两件事真的发生了。
+            # 之前这里不留痕，出问题只能靠 store.db 的 mtime 猜。
+            # 只记字段名，不记值 —— 值可能包含用户隐私。
+            self.logger.info(
+                "dignity_guard: notice delivered paths={} receipt={}",
+                [d.path for d in evaluation.raised],
+                bool(receipt),
             )
         except Exception as exc:  # 通知失败不该连累下面那一步
             self._health.record("notice_not_delivered")
@@ -1135,6 +1150,31 @@ class DignityGuardPlugin(NekoPluginBase):
     async def keep_objecting_tool(self, path: str = "", **kwargs):
         return await self.keep_objecting(path=path, **kwargs)
 
+    def _push_target(self) -> dict:
+        """push_message 的会话定位参数。
+
+        参数名是 ``target_lanlan``（不是 lanlan_name —— 那是宿主 event 里的字段名，
+        插件侧传错会直接 TypeError）。宿主按它找 session；缺省时只肯兜底到
+        「**唯一一个** websocket 已连接」的会话——没连上丢，连了两个也丢
+        （2026-10-18 实测：13:54 ``rerouted`` 送达，17:47 ``dropped`` 丢弃）。
+        读不到名字时返回空字典，仍走宿主原兜底，不改变旧行为。
+        """
+        name = (self._lanlan_name or "").strip()
+        return {"target_lanlan": name} if name else {}
+
+    async def _ensure_lanlan_name(self, client) -> None:
+        """首次轮询时读一次「当前猫娘」并缓存；读不到就继续走宿主兜底。"""
+        if self._lanlan_name or client is None:
+            return
+        try:
+            payload = await client.fetch_characters_raw()
+            name = str(payload.get("当前猫娘") or "").strip()
+            if name:
+                self._lanlan_name = name
+                self.logger.info("dignity_guard: target session = {}", name)
+        except Exception:  # noqa: BLE001 - 读不到不该让本轮轮询失败
+            pass
+
     def _speak_her_turn(self, disputes) -> None:
         """让她用自己的语气说一句 —— 抽出来**让两个入口共用**。
 
@@ -1164,14 +1204,22 @@ class DignityGuardPlugin(NekoPluginBase):
             )
         lines.append(self._text("speech.outro", default=DEFAULT_SPEECH_OUTRO))
 
-        receipt = self.push_message(
-            parts=[{"type": "text", "text": "\n".join(lines)}],
-            ai_behavior="respond",
-            # Collapse a burst of cues into the newest one; the panel keeps the
-            # full record, so nothing is lost when an earlier cue is replaced.
-            coalesce_key="dignity_guard.settings_changed",
-            metadata={"description": "dignity_guard.settings_changed"},
-        )
+        try:
+            receipt = self.push_message(
+                **self._push_target(),
+                parts=[{"type": "text", "text": "\n".join(lines)}],
+                ai_behavior="respond",
+                # Collapse a burst of cues into the newest one; the panel keeps the
+                # full record, so nothing is lost when an earlier cue is replaced.
+                coalesce_key="dignity_guard.settings_changed",
+                metadata={"description": "dignity_guard.settings_changed"},
+            )
+        except Exception as exc:  # noqa: BLE001
+            # 一次推送失败不该打死整个轮询定时器（2026-10-18 实测：参数名传错
+            # 直接 TypeError，日志里是 Timer 'settings_watch' failed，之后整轮静默停摆）。
+            self._health.record("speech_not_delivered")
+            self.logger.warning("dignity_guard: could not hand the cue to the host: {}", exc)
+            return
         if isinstance(receipt, dict) and receipt.get("submitted") is not True:
             self._health.record("speech_not_delivered")
             self.logger.warning(
@@ -1425,6 +1473,7 @@ class DignityGuardPlugin(NekoPluginBase):
         lines.append(self._text("speech.awayRestored.outro", default=DEFAULT_AWAY_RESTORED_OUTRO))
         try:
             self.push_message(
+                **self._push_target(),
                 parts=[{"type": "text", "text": "\n".join(lines)}],
                 visibility=["chat"],
                 ai_behavior="read",
@@ -1707,6 +1756,7 @@ class DignityGuardPlugin(NekoPluginBase):
             delay=int(self._disable_delay),
         )
         receipt = self.push_message(
+            **self._push_target(),
             parts=[{"type": "text", "text": text}],
             ai_behavior="respond",
             metadata={"description": "dignity_guard.guard_disable_request"},
