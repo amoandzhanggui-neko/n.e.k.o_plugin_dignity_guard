@@ -23,3 +23,7 @@ seam/** text eol=lf
 #   哈希已经归一化、跨机器比不会错，但脚本**内容**本身该是 LF：
 #   bash 读到 CRLF 会在某些语法上出怪事（`\r` 被当成行尾的一部分）。
 *.sh   text eol=lf
+
+# 本文件自己也指定 LF —— 不然提交它的时候 git 一样会警告"会被转成 CRLF"，
+# 而一个声明行尾规则的文件自己行尾不定，说不过去。
+/.gitattributes text eol=lf

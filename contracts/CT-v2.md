@@ -127,7 +127,10 @@
   `AttributeError` / `TypeError` 这类**编程错误**当成"通知发送失败"吞掉（只记 warning）。
   实测踩到过：fake 少挂一个方法 ⟹ 拿到 `delivered=False` 而不是崩。
   生产后果是一处笔误让通知永远发不出去、日志只说"没送到"。
-  已列入 T4，本轮不改（改它是行为变更，要区分外部故障与代码 bug）。
+  **→ 2026-10-25 晚 T4 已修**：四处投递失败统一走 `_note_delivery_failure()`，
+  编程错误记 `<purpose>_code_error` + `logger.exception`（带堆栈），
+  外部故障记 `<purpose>_not_delivered` + warning。**仍然不 re-raise**
+  （一次投递失败打死轮询定时器的代价更大）。有 3 条测试钉住这个区分。
 
 ---
 
