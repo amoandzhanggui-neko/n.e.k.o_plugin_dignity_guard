@@ -1,0 +1,34 @@
+{
+ "keys": {
+  "B1-guard": {
+   "contract": "0015345cb6fc0632",
+   "src": "3b7014cdb4e3f760",
+   "upstream": "e3b0c44298fc1c14"
+  },
+  "B2-host": {
+   "contract": "e3b0c44298fc1c14",
+   "src": "c4789d38fa4babfe",
+   "upstream": "e3b0c44298fc1c14"
+  },
+  "B3-memory": {
+   "contract": "e3b0c44298fc1c14",
+   "src": "d254a00e11711be8",
+   "upstream": "e3b0c44298fc1c14"
+  },
+  "B4-report": {
+   "contract": "e3b0c44298fc1c14",
+   "src": "4da99d76afca0be1",
+   "upstream": "e3b0c44298fc1c14"
+  },
+  "B5-ui": {
+   "contract": "e3b0c44298fc1c14",
+   "src": "01688efb72cc79b4",
+   "upstream": "e3b0c44298fc1c14"
+  },
+  "B6-entry": {
+   "contract": "e3b0c44298fc1c14",
+   "src": "f14a2f7e2f61baf5",
+   "upstream": "50f3ef5275b1a290"
+  }
+ }
+}

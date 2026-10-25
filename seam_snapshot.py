@@ -175,6 +175,14 @@ def main() -> int:
         return 1
 
     total_fields = sum(len(c["fields"]) for c in new["contracts"].values())
+    # T2（裁决表欠账）：解析出 0 个字段必须报错，不许静默放过。
+    # 原因：契约表格式一改（表格列序变了、反引号没了），正则就提不到字段，
+    # 而"提不到"和"契约真的没字段"在输出上长得一样 —— 那就是静默失效，比报错危险得多。
+    if len(new["contracts"]) == 0 or total_fields == 0:
+        print("[x] 解析出 0 条契约 / 0 个 out 字段 —— 契约表格式可能变了，拒绝生成空快照。")
+        print(f"    检查 {CT.name}：'## C-xxx' 节标题、以及 out 段落的 markdown 表格列序")
+        print("    （期望列序：| 字段 | 类型 | 允许态 | when | 说明 |）")
+        return 1
     print(f"解析 {CT.name}：{len(new['contracts'])} 条契约，{total_fields} 个 out 字段")
     for cid, c in sorted(new["contracts"].items()):
         print(f"  {cid}　seam_id={c['seam_id']}　字段 {len(c['fields'])} 个　hash={c['fields_hash']}")
