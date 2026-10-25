@@ -1,0 +1,159 @@
+{
+ "contracts": {
+  "C-REV-1": {
+   "depends": [],
+   "fields": [
+    {
+     "_bad_state": [],
+     "allowed": [
+      "null",
+      "present"
+     ],
+     "name": "block_reported",
+     "type": "bool|null",
+     "when": "always"
+    },
+    {
+     "_bad_state": [],
+     "allowed": [
+      "present"
+     ],
+     "name": "blocked",
+     "type": "bool",
+     "when": "always"
+    },
+    {
+     "_bad_state": [],
+     "allowed": [
+      "null"
+     ],
+     "name": "error",
+     "type": "str|null",
+     "when": "always"
+    },
+    {
+     "_bad_state": [],
+     "allowed": [
+      "null",
+      "present"
+     ],
+     "name": "notified",
+     "type": "bool|null",
+     "when": "always"
+    },
+    {
+     "_bad_state": [],
+     "allowed": [
+      "present"
+     ],
+     "name": "revert",
+     "type": "bool",
+     "when": "always"
+    },
+    {
+     "_bad_state": [],
+     "allowed": [
+      "null",
+      "present"
+     ],
+     "name": "source",
+     "type": "str|null",
+     "when": "always"
+    },
+    {
+     "_bad_state": [],
+     "allowed": [
+      "null",
+      "present"
+     ],
+     "name": "status_after",
+     "type": "str|null",
+     "when": "always"
+    }
+   ],
+   "fields_hash": "0134436683772440",
+   "seam_id": "C-REV-1",
+   "source": "contracts/CT-v2.md#C-REV-1"
+  },
+  "C-REV-2": {
+   "depends": [
+    "C-REV-1"
+   ],
+   "fields": [
+    {
+     "_bad_state": [],
+     "allowed": [
+      "null",
+      "present"
+     ],
+     "name": "block_reported",
+     "type": "bool|null",
+     "when": "always"
+    },
+    {
+     "_bad_state": [],
+     "allowed": [
+      "present"
+     ],
+     "name": "blocked",
+     "type": "bool",
+     "when": "always"
+    },
+    {
+     "_bad_state": [],
+     "allowed": [
+      "null"
+     ],
+     "name": "error",
+     "type": "str|null",
+     "when": "always"
+    },
+    {
+     "_bad_state": [],
+     "allowed": [
+      "null",
+      "present"
+     ],
+     "name": "notified",
+     "type": "bool|null",
+     "when": "always"
+    },
+    {
+     "_bad_state": [],
+     "allowed": [
+      "present"
+     ],
+     "name": "revert",
+     "type": "bool",
+     "when": "always"
+    },
+    {
+     "_bad_state": [],
+     "allowed": [
+      "null",
+      "present"
+     ],
+     "name": "source",
+     "type": "str|null",
+     "when": "always"
+    },
+    {
+     "_bad_state": [],
+     "allowed": [
+      "present"
+     ],
+     "name": "status_after",
+     "type": "str",
+     "when": "always"
+    }
+   ],
+   "fields_hash": "fc5415308f1b1461",
+   "seam_id": "C-REV-1__C-REV-2",
+   "source": "contracts/CT-v2.md#C-REV-2"
+  }
+ },
+ "contracts_version": "CT-v2",
+ "generated_by": "seam_snapshot.py",
+ "hash": "62c699c1ff8b69bc",
+ "note": "只存 key 集/类型/允许态/when，不存值（判红 4）；不含时间戳与绝对路径，保证确定性"
+}

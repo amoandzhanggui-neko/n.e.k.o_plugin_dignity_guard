@@ -1,6 +1,6 @@
 # STATE —— 现在到底能不能跑
 
-> 本文件由 `state.sh` 生成（2026-10-25 12:35），**禁止手改**。
+> 本文件由 `state.sh` 生成（2026-10-25 13:42），**禁止手改**。
 > 手写的文档会和代码漂移；命令生成的不一样，它只能反映真实。
 > 唯一铁律：跑不出来就写「跑不了」，不写历史数字。
 
@@ -8,9 +8,9 @@
 
 | 项 | 值 |
 |---|---|
-| 最新提交 | 8de4675 2026-10-25 12:26:22 +0800 STATE.md 运行时判据修正：插件日志在 logs/plugin 下，不是 Electron 前端日志；记录日志由宿主 NEKO_LOG_LEVEL 统一管 |
-| 未提交 | 3 个　（已跟踪修改 3 个： 3 files changed, 15 insertions(+), 7 deletions(-) ｜ 未跟踪新文件 0 个） |
-| 未推送 | 8 个提交 |
+| 最新提交 | 60e5b74 2026-10-25 13:22:07 +0800 补 .gitattributes 强制 LF（判红6的落法）+ 修 CRLF 检查顺序（原先天验后写、每轮验的旧文件） |
+| 未提交 | 5 个　（已跟踪修改 2 个： 2 files changed, 50 insertions(+), 10 deletions(-) ｜ 未跟踪新文件 3 个） |
+| 未推送 | 0 个提交 |
 
 ## 2. 源仓库 ↔ 宿主副本
 
@@ -31,7 +31,20 @@ cd N.E.K.O && python -m pytest plugin/plugins/dignity_guard/tests -q
 > `ImportError: attempted relative import with no known parent package`，
 > 155 个用例全部 error。这是 2026-10-25 实测出来的，不是猜的。
 
-## 4. 运行时（插件在宿主里跑没跑）
+## 4. 装配与接缝（结构接得上吗）
+
+| 项 | 结果 |
+|---|---|
+| 装配检查（导入 / 注册 / 对账） | [√] 装配检查通过 |
+| 接缝快照（契约接口有没有变） | [√] 接缝接口与上一轮一致（hash=62c699c1ff8b69bc） |
+
+判据：**装配通过 + 接缝一致**，才算结构没问题。
+
+- 装配检查验的是「代码结构接得上、源码声明的入口与宿主实际注册的一致」。
+  **它不含真启动**（真启动要宿主注入 ctx，脱离宿主造不出来）—— 真启动看第 5 节。
+- 接缝快照验的是「契约声明的 out 字段有没有被悄悄改」，对应判红 2（允许态 / when）和判红 5（seam_id 必须派生）。
+
+## 5. 运行时（插件在宿主里跑没跑）
 
 | 证据 | 值 |
 |---|---|
@@ -56,6 +69,6 @@ cd N.E.K.O && python -m pytest plugin/plugins/dignity_guard/tests -q
 > 级别由宿主环境变量 `NEKO_LOG_LEVEL` 统一管（TRACE/DEBUG/INFO/WARNING/ERROR/CRITICAL），
 > 且仓库禁止引入 loguru（CI 有 `scripts/check_no_loguru.py` 守门）。
 
-## 5. 下一步
+## 6. 下一步
 
 一条就好，必须带判据。当前判据：**0 failed、0 error**。
