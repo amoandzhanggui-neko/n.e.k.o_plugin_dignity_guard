@@ -3,6 +3,8 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+# state.sh 的测试结果缓存：每次跑都变，不入库（STATE.md 才是要留的那份）
+.state_last_test
 .venv/
 venv/
 vendor/
