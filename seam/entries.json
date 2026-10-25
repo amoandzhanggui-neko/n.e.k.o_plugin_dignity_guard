@@ -1,0 +1,26 @@
+{
+ "plugin": "dignity_guard",
+ "count": 20,
+ "entries": [
+  "__llm_tool__accept_setting",
+  "__llm_tool__keep_objecting",
+  "accept_setting",
+  "ask_her",
+  "backup_memory_now",
+  "check_now",
+  "claim_my_change",
+  "config_change",
+  "export_diagnostics",
+  "guard_status",
+  "keep_objecting",
+  "pin_backup",
+  "restore_memory",
+  "set_guard_enabled",
+  "set_guard_level",
+  "settings_watch",
+  "shutdown",
+  "startup",
+  "submit_feedback",
+  "submit_wish"
+ ]
+}
