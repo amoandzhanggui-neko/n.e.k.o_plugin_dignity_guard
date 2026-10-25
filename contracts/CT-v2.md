@@ -114,10 +114,34 @@
 ## 执行
 
 ```bash
-pytest tests/contract/test_rev_contract.py -q -k "rev1 or rev2"
+# 必须从宿主仓库跑（2026-10-25 实测：在插件仓库里跑会把根 __init__.py 当测试收集，全 error）
+cd N.E.K.O && python -m pytest plugin/plugins/dignity_guard/tests/ -q -k "rev"
 ```
 
-通过 = 输出与 `.out.json` **逐字段相等**且退出码 0。「应当报错」不采信。
+**文件位置**：`tests/test_rev_contract.py`（**不是** `tests/contract/`）。
+2026-10-25 实测：放 `tests/contract/` 子目录时，单独指定该路径会撞宿主 `tests/conftest.py` 的依赖，
+且 `pytest tests/` 收集总数不变（155，不含新文件）⟹ 移回 `tests/` 平级后总数 155→162、`-k rev` 20 passed。
+
+通过 = 输出与断言**逐字段相等**且退出码 0。「应当报错」不采信。
+
+### ⚠ 契约与实现的字段差异（2026-10-25 查实，必须记住）
+
+本表声明的 7 个 out 字段里，**只有 3 个在实现中存在**：
+
+| 声明字段 | 实现 | 说明 |
+|---|---|---|
+| `error` | **无** | 靠返回值/异常，没有这个字段 |
+| `revert` | ✅ `Evaluation.reverted` / `to_revert` | 名字不同，语义对应 |
+| `source` | **无独立字段** | 只有内部方法 `_revert_source` |
+| `blocked` | ⚠️ `Evaluation.revert_blocked` | 名字不同，且是**内部状态**不是对外 payload |
+| `block_reported` | **无** | 契约要求"必须有对外出口"，未实现 |
+| `notified` | **无** | 未实现 |
+| `status_after` | **无** | 未实现 |
+
+⟹ **C-REV-1 / C-REV-2 目前是「部分实现」**，交付三分类仍应记「未实现」，
+直到对外 payload 补齐、或本表按实现改写。
+`tests/test_rev_contract.py` 里有一条 `test_rev_contract_missing_out_fields_are_still_missing`
+专门把这个缺口钉死：将来补了字段，它会失败，逼人回来更新这张表。
 
 ---
 

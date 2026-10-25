@@ -31,6 +31,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -115,11 +116,19 @@ def check_seam_private() -> None:
 
     print(f"  涉及 {len(by_block)} 个块：" + "；".join(f"{b}={v}" for b, v in sorted(by_block.items())))
 
-    # 豁免：只要其中一个块是热点（入口层），跨块属正常
-    if any(b in hots for b in by_block):
-        ok(f"含热点块 {sorted(hots & set(by_block))}，按「入口层天然跨块」豁免")
-        return
+    # 收紧（2026-10-25，红队指出原豁免可被绕过：顺手改一行 __init__.py 就能豁免全部）
+    # 新规则：热点块只额外容忍「1 个」非热点块；跨 ≥2 个非热点块一律红。
+    # 理由：入口层确实天然跨块（改一个功能要动 __init__.py + 业务模块是正常的），
+    #      但"动一个入口 + 两个业务模块"就不是正常开发了，是在私连接缝。
+    non_hot = {b for b in by_block if b not in hots}
+    has_hot = any(b in hots for b in by_block)
 
+    if has_hot and len(non_hot) <= 1:
+        ok(f"含热点块且只牵动 {len(non_hot)} 个非热点块 ⟹ 按「入口层天然跨块」豁免")
+        return
+    if len(non_hot) >= 2:
+        red(f"跨了 {len(non_hot)} 个非热点块（{sorted(non_hot)}）—— 接缝私约（热点豁免不掩盖跨块私连）")
+        return
     if len(by_block) >= 2:
         red(f"一次改动跨了 {len(by_block)} 个块（{sorted(by_block)}）却没走接缝流程 —— 接缝私约")
     else:
@@ -229,6 +238,69 @@ def check_three_keys() -> None:
                     encoding="utf-8", newline="\n")
 
 
+# ─────────────────── 判红 9：一轮内契约变更次数 ───────────────────
+def check_contract_churn() -> None:
+    """判红 9：一轮内契约快照改了几次。
+
+    轮次边界用台账最后一次 stamp —— 按 skill §2.5-7，不许用 run_id 当边界（它未实现），
+    改用 `--stamp` 台账的 chain head：链已存在、机器可判、语义等价。
+    """
+    print("\n=== 判红 9：一轮内契约变更次数 ===")
+    round_t = None
+    led = ROOT / "docs" / "review" / "review_ledger.json"
+    if led.exists():
+        try:
+            rounds = json.loads(led.read_text(encoding="utf-8")).get("rounds", [])
+            if rounds:
+                # 台账字段是 at（不是 t）；兼容两种写法
+                round_t = rounds[-1].get("at") or rounds[-1].get("t")
+        except Exception:  # noqa: BLE001
+            pass
+
+    args = ["log", "--oneline", "--", "seam/contract_snapshot.json"]
+    if round_t:
+        args = ["log", "--oneline", f"--since={round_t}", "--", "seam/contract_snapshot.json"]
+    n = len([l for l in git(*args).split("\n") if l.strip()])
+    if "seam/contract_snapshot.json" in changed_files():
+        n += 1  # 工作区里还有一次未提交的契约改动，也算
+
+    scope = f"自上次会审（{str(round_t)[:19]}）以来" if round_t else "全历史"
+    if n >= 3:
+        red(f"{scope}契约改了 {n} 次 ⟹ 停该接缝，回工序 3 重定契约")
+    elif n == 2:
+        yellow(f"{scope}契约改了 2 次 ⟹ 本轮验收作废、重跑（不阻断全局）")
+    else:
+        ok(f"{scope}契约改了 {n} 次，未越线")
+
+
+# ─────────────────── 判红 10：三零同现 ⟹ 空转 ───────────────────
+def check_zero_triple() -> None:
+    """判红 10：退回=0 且 未证实=0 且 不一定=0 ⟹ 空转，不算放行。
+
+    数据来源：最近一份裁决表（docs/裁决表-*.md）里数三类。
+    为什么必须查：三份意见单全是"无问题"是**最危险的信号**，不是最好的信号。
+    """
+    print("\n=== 判红 10：三零同现检查 ===")
+    # 按修改时间排最新 —— 不能按文件名：中文名排序会把"首次会审"排在"第2轮"前面（首 U+9996 > 第 U+7B2C）
+    docs = sorted((ROOT / "docs").glob("裁决表-*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not docs:
+        yellow("没有裁决表，无从判断（先去会审）")
+        return
+    t = docs[0].read_text(encoding="utf-8", errors="replace")
+    # 否决：裁决表「裁决」列里写否决的行（排除"0 否决"这类总结句）
+    veto = len(re.findall(r"^\|[^\n|]*\|[^\n|]*\|\s*\**\s*否决", t, re.M))
+    # 未证实项：U1/U2/... 的表格行
+    unv = len(re.findall(r"^\|\s*U\d+\s*\|", t, re.M))
+    # 不一定：交付三分类表里那一栏
+    unc = len(re.findall(r"^\|\s*C-[A-Za-z0-9\-]+\s*\|[^\n|]*不一定", t, re.M))
+
+    print(f"  来源：{docs[0].name}　否决={veto}　未证实={unv}　不一定={unc}")
+    if veto == 0 and unv == 0 and unc == 0:
+        red("三零同现（否决=0 且 未证实=0 且 不一定=0）⟹ 空转/空审，不算放行")
+    else:
+        ok("三个数不是全零，不构成空转")
+
+
 def main() -> int:
     want = set(a for a in sys.argv[1:] if a.startswith("--"))
     run_all = not want
@@ -238,6 +310,10 @@ def main() -> int:
         check_ast()
     if run_all or "--keys" in want:
         check_three_keys()
+    if run_all or "--churn" in want:
+        check_contract_churn()
+    if run_all or "--zero" in want:
+        check_zero_triple()
 
     print("\n" + "-" * 56)
     if RED:

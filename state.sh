@@ -153,11 +153,14 @@ err_dg="$(grep -ci 'dignity' "$ERRLOG" 2>/dev/null || true)"; err_dg="${err_dg:-
 # 装配约 8 秒（含宿主 import），换来的是永远实时的结构结论 —— 这个代价值得。
 asm_res="未检查（找不到可用 python）"
 seam_res="未检查（找不到可用 python）"
+gate_res="未检查（找不到可用 python）"
 if [ -n "$PY" ]; then
   a="$(cd "$SRC" && node assembly_check.js 2>/dev/null | grep -E '装配检查(通过|失败)' | tail -1)"
   asm_res="${a:-装配检查无输出（可能是 node 不可用或超时）}"
   s="$(cd "$SRC" && "$PY" seam_snapshot.py --check 2>/dev/null | grep -E '接缝接口' | tail -1)"
   seam_res="${s:-接缝检查无输出}"
+  g="$(cd "$SRC" && "$PY" gate_extra.py 2>/dev/null | tail -2 | grep -E '三条判定|有 [0-9]+ 条红' | tail -1)"
+  gate_res="${g:-三条判定无输出}"
 fi
 
 # ---- 4. 写盘 ----
@@ -201,6 +204,7 @@ $TEST_CMD
 |---|---|
 | 装配检查（导入 / 注册 / 对账） | $asm_res |
 | 接缝快照（契约接口有没有变） | $seam_res |
+| 三条判定（接缝私约 / AST / 三键 / 契约改动次数 / 三零同现） | $gate_res |
 
 判据：**装配通过 + 接缝一致**，才算结构没问题。
 
