@@ -220,17 +220,6 @@ def stage_structure(cls, host_entries: list[str] | None, plugin_id: str):
     seam = ROOT / "seam"
     seam.mkdir(exist_ok=True)
 
-    # 判红 6 的一半：seam/ 下的产物不许含 \r。
-    # 原因：CRLF 环境里 \r 会被当成 key 的一部分，快照哈希跨机器就乱跳（假红/假绿）。
-    bad_cr = []
-    for f in sorted(seam.rglob("*")):
-        if f.is_file() and b"\r" in f.read_bytes():
-            bad_cr.append(f.relative_to(ROOT).as_posix())
-    if bad_cr:
-        say("3", False, "seam/ 下有文件含 CRLF（会让快照哈希不稳定）", f"{bad_cr}")
-    else:
-        print("[√] 阶段3 seam/ 下产物无 CRLF")
-
     base = seam / "entries.json"
     prev = None
     if base.exists():
@@ -250,6 +239,18 @@ def stage_structure(cls, host_entries: list[str] | None, plugin_id: str):
     # newline="\n" 必须显式指定：Windows 上 Path.write_text 默认会把 \n 转成 \r\n，
     # 而本脚本自己就有「seam/ 不许含 CRLF」的判据（判红 6）—— 不加这个参数会自打脸。
     base.write_text(json.dumps(cur, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n")
+
+    # 判红 6：**产物写完之后**才验 CRLF。
+    # 早先写成"先验后写"，结果每轮验的都是上一轮的旧文件 ⟹ 永远报红（自己踩过这个坑）。
+    # \r 进了快照会让哈希跨机器乱跳（本地绿、别人红），所以这条必须是红，不是黄。
+    bad_cr = []
+    for f in sorted(seam.rglob("*")):
+        if f.is_file() and b"\r" in f.read_bytes():
+            bad_cr.append(f.relative_to(ROOT).as_posix())
+    if bad_cr:
+        say("3", False, "seam/ 下有文件含 CRLF（哈希会跨机器乱跳）", f"{bad_cr}")
+    else:
+        print("[√] 阶段3 seam/ 下产物无 CRLF（.gitattributes 已强制 LF）")
 
 
 def main() -> int:

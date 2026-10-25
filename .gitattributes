@@ -1,0 +1,18 @@
+# 行尾规则（判红 6 的落法，2026-10-25 补）
+#
+# 为什么必须有这个文件：
+#   本仓库在 Windows 上，core.autocrlf=true 的默认行为会在 checkout 时把 LF 转成 CRLF。
+#   而 seam/ 下的快照要按内容算哈希 —— \r 会被当成 key 的一部分，同一份代码换个机器哈希就变，
+#   于是出现「本地绿、别人红」或反过来。这属于最典型的假绿。
+#
+# 判据（skill §8.3 判红 6）：快照含 \r ⟹ 红；.gitattributes 必须进受控集。
+
+# seam/ 下的产物一律 LF，不做任何行尾转换
+seam/** text eol=lf
+
+# 脚本与文档也统一 LF，避免 diff 噪音
+*.py   text eol=lf
+*.js   text eol=lf
+*.md   text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
