@@ -532,7 +532,18 @@ def check_contract_churn() -> None:
     args += ["--", "contracts/", "seam/contract_snapshot.json"]
     committed = len([line for line in git(*args).split("\n") if line.strip()])
 
-    dirty_paths = {p for p in (changed_since_ledger() | changed_files())
+    # ★ 2026-10-25 修：这里原来用 `changed_since_ledger()`，会和 `git log` **重复计数**。
+    #
+    #   症状（实测踩到）：这一轮只提交了一次 CT-v2 改动，工作区也干净，
+    #   它却报「契约改了 2 次 ⟹ 本轮验收作废」。原因是：
+    #     · `git log --since=<上轮>` 数到了那次提交（1 次）✓
+    #     · `changed_since_ledger()` 的判据是"相对台账哈希变了"，那次提交也在里面 ⟹ 又 +1 ✗
+    #   两个来源重叠，1 次改动被数成 2 次，然后触发"验收作废"的黄。
+    #
+    #   正确分工：
+    #     · 已提交的 ⟹ 只由 `git log` 数
+    #     · 还没提交的 ⟹ 只看**工作区**（`changed_files()`），那部分 `git log` 数不到
+    dirty_paths = {p for p in changed_files()
                    if p.startswith("contracts/") or p == "seam/contract_snapshot.json"}
     n = committed + (1 if dirty_paths else 0)
 
