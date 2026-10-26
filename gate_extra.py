@@ -693,7 +693,45 @@ def check_alive() -> None:
     )
 
 
+def _preflight() -> str | None:
+    """跑之前的体检：这个目录到底是不是**初始化过**的插件仓库。
+
+    ★ 为什么必须做（2026-10-26 在空目录上实测踩到，先从 skill/tools 的通用版修的）：
+
+      没有这一步时，在空目录上跑，每条检查都会「缺文件 ⟹ 跳过」，
+      最后打出「全部判定通过（6 条黄，不阻断）」——
+      **6 条黄里面包着一句"通过"，那就是假绿。** 它比红更危险：
+      红会让人停手，假绿会让人放心。
+
+      工具必须**拒绝在没初始化的目录上给结论** —— 这是它的责任边界，
+      不是"尽量不报错"。给不出有意义的结论时，说"给不出"，别说"通过"。
+
+    返回 ``None`` = 可以跑；否则返回人话原因。
+    """
+    must = [
+        (ROOT / "seam", "seam/（接缝基线）"),
+        (ROOT / "contracts", "contracts/（契约）"),
+        (ROOT / "seam" / "blocks.json", "seam/blocks.json（块清单，由 block_check.py 生成）"),
+    ]
+    missing = [desc for path, desc in must if not path.exists()]
+    if missing:
+        return f"{ROOT} 下缺 {'、'.join(missing)}"
+    return None
+
+
 def main() -> int:
+    pre = _preflight()
+    if pre:
+        print("\n=== 前置体检 ===")
+        red(
+            f"{pre} ⟹ 这不像一个初始化过的插件仓库，**拒绝给结论**。"
+            "先按 skill 的九步流程把 seam/ 与 contracts/ 建起来"
+        )
+        print("\n" + "-" * 56)
+        print("[x] 有 1 条红：")
+        print(f"   - {pre}")
+        return 1
+
     want = set(a for a in sys.argv[1:] if a.startswith("--"))
     run_all = not want
     if run_all or "--dyn" in want:
