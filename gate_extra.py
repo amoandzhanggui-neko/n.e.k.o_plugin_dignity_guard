@@ -712,6 +712,10 @@ def _preflight() -> str | None:
         (ROOT / "seam", "seam/（接缝基线）"),
         (ROOT / "contracts", "contracts/（契约）"),
         (ROOT / "seam" / "blocks.json", "seam/blocks.json（块清单，由 block_check.py 生成）"),
+        # `.git` 是 2026-10-27 补的：判红 3（工作区干净）、判红 9（契约变更次数）、ledger 链，
+        # 全靠 `git status` / `git log`。非 git 目录下它们**全部返回空**，
+        # 于是「无变更 ⟹ 全绿」—— 又一个假绿入口。与 skill/tools 通用版同口径。
+        (ROOT / ".git", ".git/（变更集与台账链都靠它，没有它判定是空的）"),
     ]
     missing = [desc for path, desc in must if not path.exists()]
     if missing:

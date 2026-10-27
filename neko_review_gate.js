@@ -225,7 +225,47 @@ function syncReport() {
   return diff;
 }
 
+/**
+ * 前置体检：这个目录到底是不是**初始化过**的插件仓库。
+ *
+ * ★ 为什么必须做（2026-10-26 在空目录上实测踩到，gate_extra.py 先修的）：
+ *
+ *   没有这一步时，在空目录/非 git 目录上跑：`controlledFiles()` 返回空数组
+ *   ⟹ `miss` 为空 ⟹ `git status` 也空 ⟹ 一路走到「[√] 可以交付」。
+ *   **一条都没查，却说可以交付。** 它比红更危险：红会让人停手，假绿会让人放心。
+ *
+ *   工具必须**拒绝在没初始化的目录上给结论** —— 这是责任边界，不是"尽量不报错"。
+ *   给不出有意义的结论时，说"给不出"，别说"通过"。
+ *
+ * 与 `gate_extra.py::_preflight` 口径一致（三样 + .git）。`.git` 是这边专门要的：
+ * 判红 3（工作区必须干净）与判红 9（契约变更次数）都靠 `git status` / `git log`。
+ * 这两条在非 git 目录下拿到的是空字符串 ⟹ 读成「一次都没改过」⟹ **假绿**。
+ *
+ * ⚠ 别把两件事混了：**受控文件集不靠 git**（`controlledFiles()` 是目录递归 walk）。
+ *   我第一版注释就写错了这一句，等于让人以为没 .git 就查不出受控文件 —— 那是猜的，不是读的。
+ */
+function preflight() {
+  const must = [
+    [path.join(ROOT, 'seam'), 'seam/（接缝基线）'],
+    [path.join(ROOT, 'contracts'), 'contracts/（契约）'],
+    [path.join(ROOT, 'seam', 'blocks.json'), 'seam/blocks.json（块清单，由 block_check.py 生成）'],
+    [path.join(ROOT, '.git'), '.git/（判红 3 与判红 9 靠它；没有它这两条会静默判「没改过」）'],
+  ];
+  const missing = must.filter(function (m) { return !fs.existsSync(m[0]); })
+    .map(function (m) { return m[1]; });
+  if (missing.length) return ROOT + ' 下缺 ' + missing.join('、');
+  return null;
+}
+
 function check() {
+  const pre = preflight();
+  if (pre) {
+    console.log('[x] 前置体检不通过：' + pre);
+    console.log('    这不像一个初始化过的插件仓库 ⟹ **拒绝给结论**。');
+    console.log('    先按 skill 的九步流程把 seam/ 与 contracts/ 建起来，再回来跑这条。');
+    return 1;
+  }
+
   const files = controlledFiles();
   const cur = currentHashes();
   const miss = files.filter(function (f) { return !cur[f]; });
