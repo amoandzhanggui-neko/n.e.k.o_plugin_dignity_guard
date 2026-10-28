@@ -25,7 +25,8 @@
     {
      "_bad_state": [],
      "allowed": [
-      "null"
+      "null",
+      "present"
      ],
      "name": "error",
      "type": "str|null",
@@ -71,7 +72,7 @@
      "when": "always"
     }
    ],
-   "fields_hash": "0134436683772440",
+   "fields_hash": "66c3fdac2c8496d1",
    "seam_id": "C-REV-1",
    "source": "contracts/CT-v2.md#C-REV-1"
   },
@@ -154,6 +155,6 @@
  },
  "contracts_version": "CT-v2",
  "generated_by": "seam_snapshot.py",
- "hash": "62c699c1ff8b69bc",
+ "hash": "4f3feeb008c687fe",
  "note": "只存 key 集/类型/允许态/when，不存值（判红 4）；不含时间戳与绝对路径，保证确定性"
 }

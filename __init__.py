@@ -354,6 +354,16 @@ class RoundOutcome:
     notice_delivered: bool | None = None
     #: 有拦住时那条「放不回去」有没有递到宿主。没拦住 ⟹ None
     blocked_reported: bool | None = None
+    #: 本轮发生了**非预期的编程错误**时的错误码；正常 ⟹ None。
+    #: 2026-10-28 补（契约 CT-v2 的 ``error``）：此前没有这个键，
+    #: 契约却要求"正常必须是 null"，于是"没实现"和"刻意不加"被混为一谈。
+    #: 只在 ``_run_reverts`` 的异常分支里赋值 —— 不把普通失败（reason 字符串）
+    #: 混进来，那属于 ``blocked`` 的语义。
+    error: str | None = None
+    #: 本轮回滚所依据的「她的原值」来自哪个字段路径；无回滚或多于一条 ⟹ None。
+    #: 多于一条时不硬塞一个（单值表达不了多项），由 ``blocked``/``revert`` 分工，
+    #: 这条留给"恰好一条、能指名道姓"的情况。
+    source: str | None = None
 
     def as_report(self) -> dict[str, Any]:
         """摊平成契约要求的 ``out`` 形状（键名与 CT-v2 一致）。
@@ -363,7 +373,9 @@ class RoundOutcome:
         要数量的人自己取，别让同一个信息有两个名字。
         """
         return {
+            "error": self.error,
             "revert": bool(self.put_back),
+            "source": self.source,
             "blocked": bool(self.blocked),
             "block_reported": self.blocked_reported,
             "notified": self.notice_delivered,
@@ -1141,7 +1153,9 @@ class DignityGuardPlugin(NekoPluginBase):
             #   · ``revert``    = **本轮**有没有真的放回去
             #   两者只在「缺席恢复恰好插在同一轮」时不同。两个都留是因为它们的时间窗
             #   不一样：面板要"上次是什么结果"，契约问"这轮做成了吗"。
+            "error": self._outcome.error,
             "revert": bool(self._outcome.put_back),
+            "source": self._outcome.source,
             "blocked": bool(self._outcome.blocked),
             "block_reported": self._outcome.blocked_reported,
             "notified": self._outcome.notice_delivered,
@@ -1468,6 +1482,11 @@ class DignityGuardPlugin(NekoPluginBase):
         self._revert_outcomes = {}
         self._outcome.put_back = []
         self._outcome.blocked = []
+        self._outcome.error = None
+        # 只有「恰好一条」时才指名道姓；多条用 revert/blocked 表达，不硬塞单值。
+        self._outcome.source = (
+            evaluation.to_revert[0].path if len(evaluation.to_revert) == 1 else None
+        )
         for path in evaluation.revert_blocked:
             # She asked for it back and the value we would have written could
             # not be shown to be hers (see ``GuardState._revert_source``). That
@@ -1481,7 +1500,19 @@ class DignityGuardPlugin(NekoPluginBase):
                 "dignity_guard: left {} as it was (baseline_lost)", path
             )
         for change in evaluation.to_revert:
-            reason = await self._revert_change(change)
+            try:
+                reason = await self._revert_change(change)
+            except Exception as exc:  # noqa: BLE001
+                # 单条回滚里的编程错误以前会一路冒到 _run_poll，让**整轮**失败：
+                # 后面的路径连尝试都轮不到，而这一轮的 result 也不会留下任何东西。
+                # 这里降级为「这条失败 + 留错误码」，其余路径继续走 ——
+                # 契约 CT-v2 的 ``error`` 就是给这种情况用的（正常必须是 None）。
+                self._outcome.error = "revert_exception:" + type(exc).__name__
+                self._health.record("revert_exception")
+                self.logger.warning(
+                    "dignity_guard: revert {} raised {}", change.path, type(exc).__name__
+                )
+                reason = "exception"
             self._revert_outcomes[change.path] = reason
             if reason:
                 self._outcome.blocked.append(change.path)

@@ -46,7 +46,7 @@
 
 | 字段 | 类型 | 允许态 | when | 说明 |
 |---|---|---|---|---|
-| error | str\|null | `{null}` | `always` | 只在异常路径有值；正常必须是 null |
+| error | str\|null | `{null,present}` | `always` | 只在异常路径有值；正常必须是 null（2026-10-28 补实现后，异常时允许有值） |
 | revert | bool | `{present}` | `always` | 是否已回滚 |
 | source | str\|null | `{null,present}` | `always` | 回滚来源字段路径；未回滚时为 null |
 | blocked | bool | `{present}` | `always` | 是否被拦 |
@@ -227,3 +227,25 @@ cd N.E.K.O && python -m pytest plugin/plugins/dignity_guard/tests/ -q -k "rev"
 | C-REV-1 语义 | — | 不变 | — |
 | C-REV-2 `status_after` | 未声明 | `{present}`（收紧） | **⚠ 语义变化，唯一一处** |
 | 正例/反例/ASSERTED_FIELDS | — | 全部不变 | — |
+
+---
+
+### 字段 → 样例映射（v3，2026-10-28 补实现后）
+
+> 只挂**真实断言行**；「名字像」不算。第一版按函数名挂，7 行里 5 行不成立（会审指出）。
+
+| 字段 | 正例 | 反例 | 齐否 |
+|---|---|---|---|
+| `error` | `test_error_records_exception_without_aborting_the_round` | `test_error_is_none_on_normal_path` | 齐 |
+| `revert` | `test_outcome_e2e.py:159` | `:118` | 齐 |
+| `source` | `test_source_names_path_when_exactly_one_revert` | `test_source_is_none_when_multiple_or_none` | 齐 |
+| `blocked` | `:117` | `:160` | 齐 |
+| `block_reported` | `:119` | `:146`、`:161` | 齐 |
+| `notified` | `:200` | **无** | 缺反例 |
+| `status_after` | `:120`、`:162`、六值覆盖 | **无** | 缺反例 |
+
+**合计**：齐 5 / 缺反例 2 / 未实现 0（= 7 字段）。
+
+**M2 未证实项**：
+- M2-6 `notified` 反例：补一条「送达失败但 summary 说 True」的负向用例。
+- M2-7 `status_after` 反例：补一条「不该是 reverted 却报 reverted」的负向用例。

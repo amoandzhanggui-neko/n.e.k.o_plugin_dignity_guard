@@ -335,3 +335,51 @@ def _dispute() -> Dispute:
         before_preview="理智",
         after_preview="暴躁",
     )
+
+
+# ── 2026-10-28：契约 CT-v2 的 error / source 两个字段（A 方案补实现后补样例）──
+
+def test_source_names_path_when_exactly_one_revert() -> None:
+    """契约 source：恰好一条回滚时，必须指名道姓（不许用 None 糊过去）。"""
+    fake, _ = _plugin(revert_reason="")
+    evaluation = Evaluation()
+    evaluation.to_revert = [_change()]
+    asyncio.run(DignityGuardPlugin._run_reverts(fake, evaluation))
+    report = DignityGuardPlugin._summary(fake, evaluation)
+    assert report["source"] == _change().path
+
+
+def test_source_is_none_when_multiple_or_none() -> None:
+    """契约 source：0 条或多条 ⟹ None（单值表达不了多项，不许硬塞第一个）。"""
+    fake, _ = _plugin(revert_reason="")
+    for items in ([], [_change("a.b"), _change("c.d")]):
+        evaluation = Evaluation()
+        evaluation.to_revert = list(items)
+        asyncio.run(DignityGuardPlugin._run_reverts(fake, evaluation))
+        assert DignityGuardPlugin._summary(fake, evaluation)["source"] is None
+
+
+def test_error_is_none_on_normal_path() -> None:
+    """契约 error：正常路径必须是 None（不能拿 blocked 的 reason 冒充）。"""
+    fake, _ = _plugin(revert_reason="baseline_lost")
+    evaluation = Evaluation()
+    evaluation.to_revert = [_change()]
+    asyncio.run(DignityGuardPlugin._run_reverts(fake, evaluation))
+    assert DignityGuardPlugin._summary(fake, evaluation)["error"] is None
+
+
+def test_error_records_exception_without_aborting_the_round() -> None:
+    """契约 error：单条回滚抛异常 ⟹ 记错误码，且这条算拦住（不算放回去了）。"""
+    fake, _ = _plugin(revert_reason="")
+
+    async def boom(change):  # noqa: ANN001
+        raise RuntimeError("kaboom")
+
+    fake._revert_change = boom
+    evaluation = Evaluation()
+    evaluation.to_revert = [_change()]
+    asyncio.run(DignityGuardPlugin._run_reverts(fake, evaluation))
+    report = DignityGuardPlugin._summary(fake, evaluation)
+    assert report["error"] == "revert_exception:RuntimeError"
+    assert report["blocked"] is True, "抛异常的那条要算拦住，不能算放回去了"
+    assert report["revert"] is False

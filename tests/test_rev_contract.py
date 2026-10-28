@@ -152,7 +152,7 @@ def test_rev2_rejecting_revokes_the_grant() -> None:
 #   · 这三个字段是这一轮**行动**的结果（通知发没发出去、回滚成没成）
 # 所以它们落在 ``RoundOutcome`` 里，由 ``_summary()`` 报出去。
 
-CONTRACT_OUT_KEYS = {"revert", "blocked", "block_reported", "notified"}
+CONTRACT_OUT_KEYS = {"error", "revert", "source", "blocked", "block_reported", "notified"}
 
 
 def test_outcome_report_uses_contract_key_names() -> None:
