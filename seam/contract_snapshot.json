@@ -54,12 +54,11 @@
     {
      "_bad_state": [],
      "allowed": [
-      "null",
       "present"
      ],
      "name": "source",
-     "type": "str|null",
-     "when": "len(to_revert)==1 且 revert==true"
+     "type": "list[str]",
+     "when": "always"
     },
     {
      "_bad_state": [],
@@ -72,7 +71,7 @@
      "when": "always"
     }
    ],
-   "fields_hash": "c89172743c66304e",
+   "fields_hash": "ba197ef8e8386cb1",
    "seam_id": "C-REV-1",
    "source": "contracts/CT-v2.md#C-REV-1"
   },
@@ -131,11 +130,10 @@
     {
      "_bad_state": [],
      "allowed": [
-      "null",
       "present"
      ],
      "name": "source",
-     "type": "str|null",
+     "type": "list[str]",
      "when": "always"
     },
     {
@@ -148,13 +146,13 @@
      "when": "always"
     }
    ],
-   "fields_hash": "fc5415308f1b1461",
+   "fields_hash": "6fd794e64ea83cbe",
    "seam_id": "C-REV-1__C-REV-2",
    "source": "contracts/CT-v2.md#C-REV-2"
   }
  },
  "contracts_version": "CT-v2",
  "generated_by": "seam_snapshot.py",
- "hash": "f70decad8af03b82",
+ "hash": "c16970392985ad9a",
  "note": "只存 key 集/类型/允许态/when，不存值（判红 4）；不含时间戳与绝对路径，保证确定性"
 }

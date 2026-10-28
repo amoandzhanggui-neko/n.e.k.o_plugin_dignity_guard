@@ -48,7 +48,7 @@
 |---|---|---|---|---|
 | error | str\|null | `{null,present}` | `always` | 只在异常路径有值；正常必须是 null（2026-10-28 补实现后，异常时允许有值） |
 | revert | bool | `{present}` | `always` | 是否已回滚 |
-| source | str\|null | `{null,present}` | `len(to_revert)==1 且 revert==true` | 回滚来源字段路径；未回滚时为 null |
+| source | list[str] | `{present}` | `always` | 本轮**真的放回去**的路径列表；没有回滚 ⟹ `[]`。2026-10-28 由单值改列表：多项情形原本只能报 null，等于把路径丢掉还说"没有" |
 | blocked | bool | `{present}` | `always` | 是否被拦 |
 | block_reported | bool\|null | `{present,null}` | `always` | 拦了必须有出口；未进 blocked 分支时为 null |
 | notified | bool\|null | `{present,null}` | `always` | **未证实，见 U1** |
@@ -56,10 +56,10 @@
 
 - **ASSERTED_FIELDS**（正例）：`[error, revert, source, blocked]`
 - **正例**：`in_high.json → out_high.json`
-  期望 `{"error":null,"revert":true,"source":"characters.猫娘.昵称","blocked":false}`
+  期望 `{"error":null,"revert":true,"source":["characters.猫娘.昵称"],"blocked":false}`
 - **反例**：`bad_no_base.in.json → bad_no_base.out.json`（想要回滚但无可信 base）
-  期望 `{"error":null,"revert":false,"source":null,"blocked":true,"block_reported":true}`
-  - 正向断言：`blocked is True and block_reported is True and revert is False and source is None`
+  期望 `{"error":null,"revert":false,"source":[],"blocked":true,"block_reported":true}`
+  - 正向断言：`blocked is True and block_reported is True and revert is False and source == []`
   - 只把状态塞进 `revert_blocked`、不给上层可见出口 ⟹ `block_reported=false` ⟹ **判红**
 - **depends**：`[]`
 
@@ -89,7 +89,7 @@
 |---|---|---|---|---|
 | error | str\|null | `{null}` | `always` | 正常必须是 null |
 | revert | bool | `{present}` | `always` | |
-| source | str\|null | `{null,present}` | `always` | |
+| source | list[str] | `{present}` | `always` | |
 | blocked | bool | `{present}` | `always` | |
 | block_reported | bool\|null | `{present,null}` | `always` | **该路径不产生 blocked，恒为 null，见 U2** |
 | notified | bool\|null | `{present,null}` | `always` | |
@@ -97,9 +97,9 @@
 
 - **ASSERTED_FIELDS**（正/反同集合）：`[error, revert, source, blocked, status_after, notified]`
 - **正例**（TTL 内，她此前 accepted）：`in_second_in_ttl.json → out_second_in_ttl.json`
-  期望 `{"error":null,"revert":false,"source":null,"blocked":false,"status_after":"accepted"}`
+  期望 `{"error":null,"revert":false,"source":[],"blocked":false,"status_after":"accepted"}`
 - **反例**（TTL 已过，应重问）：`bad_second_edit.in.json → bad_second_edit.out.json`
-  期望 `{"error":null,"revert":false,"source":null,"blocked":false,"status_after":"pending"}`
+  期望 `{"error":null,"revert":false,"source":[],"blocked":false,"status_after":"pending"}`
   - **★ 必须在独立用例中跑**：单次改动全覆盖也发现不了「第二次改动把她此前的反对降级回 pending」
 - **depends**：`[C-REV-1]`
 

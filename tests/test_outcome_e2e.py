@@ -348,17 +348,17 @@ def test_source_names_path_when_exactly_one_revert() -> None:
     evaluation.to_revert = [_change()]
     asyncio.run(DignityGuardPlugin._run_reverts(fake, evaluation))
     report = DignityGuardPlugin._summary(fake, evaluation)
-    assert report["source"] == _change().path
+    assert report["source"] == [_change().path], "一条就报一条，用列表"
 
 
-def test_source_is_none_when_multiple_or_none() -> None:
-    """契约 source：0 条或多条 ⟹ None（单值表达不了多项，不许硬塞第一个）。"""
+def test_source_lists_every_reverted_path() -> None:
+    """契约 source：几条就报几条；0 条 ⟹ 空列表（不用 None 表示"没有"）。"""
     fake, _ = _plugin(revert_reason="")
-    for items in ([], [_change("a.b"), _change("c.d")]):
+    for items, expected in (([], []), ([_change("a.b"), _change("c.d")], ["a.b", "c.d"])):
         evaluation = Evaluation()
         evaluation.to_revert = list(items)
         asyncio.run(DignityGuardPlugin._run_reverts(fake, evaluation))
-        assert DignityGuardPlugin._summary(fake, evaluation)["source"] is None
+        assert DignityGuardPlugin._summary(fake, evaluation)["source"] == expected
 
 
 def test_error_is_none_on_normal_path() -> None:
@@ -395,7 +395,7 @@ def test_source_is_none_when_the_single_revert_fails() -> None:
     asyncio.run(DignityGuardPlugin._run_reverts(fake, evaluation))
     report = DignityGuardPlugin._summary(fake, evaluation)
     assert report["revert"] is False
-    assert report["source"] is None, "没放回去就不该指名道姓"
+    assert report["source"] == [], "没放回去就没有可指的路径"
 
 
 def test_exception_on_one_path_keeps_the_others_going() -> None:
@@ -415,7 +415,7 @@ def test_exception_on_one_path_keeps_the_others_going() -> None:
     assert report["error"] == "revert_exception:RuntimeError"
     assert report["blocked"] is True, "崩的那条要算拦住"
     assert report["revert"] is True, "另一条成功了，revert 必须是 True"
-    assert report["source"] is None, "多条时不给单值"
+    assert report["source"] == ["chars.two"], "只有真的回去的那条进列表"
     assert pushed, "拦住的那条必须留下用户可见出口"
 
 

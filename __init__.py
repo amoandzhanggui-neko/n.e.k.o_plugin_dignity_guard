@@ -360,10 +360,11 @@ class RoundOutcome:
     #: 只在 ``_run_reverts`` 的异常分支里赋值 —— 不把普通失败（reason 字符串）
     #: 混进来，那属于 ``blocked`` 的语义。
     error: str | None = None
-    #: 本轮回滚所依据的「她的原值」来自哪个字段路径；无回滚或多于一条 ⟹ None。
-    #: 多于一条时不硬塞一个（单值表达不了多项），由 ``blocked``/``revert`` 分工，
-    #: 这条留给"恰好一条、能指名道姓"的情况。
-    source: str | None = None
+    #: 本轮回滚所依据的「她的原值」来自哪些字段路径；没有回滚 ⟹ 空列表。
+    #: 2026-10-28 改为 ``list[str]``：单值表达不了"一轮同时放回两个字段"
+    #: （整份 profile 保存常同时改 2 个），那时只能报 None，等于把路径信息丢掉还
+    #: 装作说了。空列表 = 确实没有可指的路径，与"有但没说"能分开。
+    source: list[str] = field(default_factory=list)
 
     def as_report(self) -> dict[str, Any]:
         """摊平成契约要求的 ``out`` 形状（键名与 CT-v2 一致）。
@@ -375,7 +376,8 @@ class RoundOutcome:
         return {
             "error": self.error,
             "revert": bool(self.put_back),
-            "source": self.source,
+            # 复制一份：调用方改返回值不该反过来改本轮的 outcome。
+            "source": list(self.source),
             "blocked": bool(self.blocked),
             "block_reported": self.blocked_reported,
             "notified": self.notice_delivered,
@@ -1155,7 +1157,7 @@ class DignityGuardPlugin(NekoPluginBase):
             #   不一样：面板要"上次是什么结果"，契约问"这轮做成了吗"。
             "error": self._outcome.error,
             "revert": bool(self._outcome.put_back),
-            "source": self._outcome.source,
+            "source": list(self._outcome.source),
             "blocked": bool(self._outcome.blocked),
             "block_reported": self._outcome.blocked_reported,
             "notified": self._outcome.notice_delivered,
@@ -1483,10 +1485,8 @@ class DignityGuardPlugin(NekoPluginBase):
         self._outcome.put_back = []
         self._outcome.blocked = []
         self._outcome.error = None
-        # source 先置 None，等循环结束、确认**真的放回去了**再填（见循环后）。
-        # 不能在循环前按 len==1 无条件填：单条失败时 revert=false 却给 source，
-        # 直接违反契约「未回滚时为 null」。
-        self._outcome.source = None
+        # source 先清空，循环结束按「真的放回去了」填（见循环后）。
+        self._outcome.source = []
         for path in evaluation.revert_blocked:
             # She asked for it back and the value we would have written could
             # not be shown to be hers (see ``GuardState._revert_source``). That
@@ -1527,14 +1527,9 @@ class DignityGuardPlugin(NekoPluginBase):
             self._outcome.blocked_reported = self._push_blocked_notice(
                 self._outcome.blocked, self._revert_outcomes
             )
-        # source 只在「恰好一条 且 真的放回去了」时填。
-        # 契约说「未回滚时为 null」——失败、被拦、多条，一律 None。
-        # 多条不硬塞第一个：单值表达不了多项，那属于把信息说丢还装作说了。
-        if (
-            len(evaluation.to_revert) == 1
-            and self._outcome.put_back == [evaluation.to_revert[0].path]
-        ):
-            self._outcome.source = evaluation.to_revert[0].path
+        # source = 本轮**真的放回去**的那些路径（按处理顺序）。
+        # 空列表 = 没有可指的路径（没回滚 / 全失败），与「有但没说」分开。
+        self._outcome.source = list(self._outcome.put_back)
 
     def _push_blocked_notice(
         self, paths: list[str], reasons: dict[str, str] | None = None
