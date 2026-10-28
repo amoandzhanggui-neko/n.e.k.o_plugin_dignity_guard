@@ -239,7 +239,7 @@ cd N.E.K.O && python -m pytest plugin/plugins/dignity_guard/tests/ -q -k "rev"
 |---|---|---|---|
 | `error` | `test_error_records_exception_without_aborting_the_round` | `test_error_is_none_on_normal_path` | 齐 |
 | `revert` | `test_outcome_e2e.py:159` | `:118` | 齐 |
-| `source` | `test_source_names_path_when_exactly_one_revert` | `test_source_lists_every_reverted_path` | 齐 |
+| `source` | `test_source_names_path_when_exactly_one_revert` | `test_source_is_empty_when_the_single_revert_fails` | 齐 |
 | `blocked` | `:117` | `:160` | 齐 |
 | `block_reported` | `:119` | `:146`、`:161` | 齐 |
 | `notified` | `:200` | **无** | 缺反例 |

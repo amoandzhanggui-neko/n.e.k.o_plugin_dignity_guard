@@ -387,8 +387,8 @@ def test_error_records_exception_without_aborting_the_round() -> None:
     assert report["revert"] is False
 
 
-def test_source_is_none_when_the_single_revert_fails() -> None:
-    """契约「未回滚时为 null」：单条失败时 source 必须是 None，不许照样填路径。"""
+def test_source_is_empty_when_the_single_revert_fails() -> None:
+    """契约「未回滚 ⟹ 空列表」：单条失败时 source 必须是 []，不许照样填路径。"""
     fake, _ = _plugin(revert_reason="baseline_lost")
     evaluation = Evaluation()
     evaluation.to_revert = [_change()]
