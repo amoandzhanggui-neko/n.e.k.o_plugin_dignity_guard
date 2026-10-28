@@ -136,10 +136,10 @@
 
 ## 执行
 
-```bash
+``bash
 # 必须从宿主仓库跑（2026-10-25 实测：在插件仓库里跑会把根 __init__.py 当测试收集，全 error）
 cd N.E.K.O && python -m pytest plugin/plugins/dignity_guard/tests/ -q -k "rev"
-```
+``
 
 **文件位置**：`tests/test_rev_contract.py`（**不是** `tests/contract/`）。
 2026-10-25 实测：放 `tests/contract/` 子目录时，单独指定该路径会撞宿主 `tests/conftest.py` 的依赖，
@@ -227,3 +227,26 @@ cd N.E.K.O && python -m pytest plugin/plugins/dignity_guard/tests/ -q -k "rev"
 | C-REV-1 语义 | — | 不变 | — |
 | C-REV-2 `status_after` | 未声明 | `{present}`（收紧） | **⚠ 语义变化，唯一一处** |
 | 正例/反例/ASSERTED_FIELDS | — | 全部不变 | — |
+
+---
+
+### 字段 → 正/反例映射（v2.1，2026-10-27 补）
+
+> 本节**只是索引，不改判等规则、不改语义**。用途：让「每条契约都有正例+反例」（完工定义第 1 条）可当场核。
+> 跑法：cd N.E.K.O && .venv/Scripts/pytest plugin/plugins/dignity_guard/tests -q -k "<用例名>"
+
+| 字段 | 正例（该出现） | 反例（不该出现 / 边界） |
+|---|---|---|
+| revert | test_rev1_high_tier_marks_exactly_what_she_named | test_rev1_medium_tier_never_reverts |
+| blocked | test_blocked_path_fills_all_three_fields | test_successful_revert_does_not_report_blocked |
+| block_reported | test_blocked_path_fills_all_three_fields | test_blocked_notice_failure_reports_false_not_none |
+| notified | test_notified_true_when_notice_delivered | test_notified_false_when_host_rejects |
+| status_after | test_status_after_covers_all_six_values | test_outcome_keeps_none_and_false_apart |
+| error | test_programming_error_recorded_as_code_error | test_speak_programming_error_is_not_mistaken_for_delivery_failure |
+| source | test_outcome_report_uses_contract_key_names | **豁免**（字段无独立实现，设计如此） |
+
+**豁免登记**（按 §9 口径：缺 reason / 四问未逐条 / 无具名 owner ⟹ F4）：
+
+- source —— reason：契约允许它不出现，语义由变更项自带的 path 承载，不另立字段。
+  owner：掌柜（amoandzhanggui-neko）。四问：跨进程 **否** / 跨时序 **否** / 跨权限 **否** / 跨超时 **否**。
+- error —— **不豁免**（有实现，走异常路径），因此必须同时有两个用例，已列在上表。
