@@ -1483,10 +1483,10 @@ class DignityGuardPlugin(NekoPluginBase):
         self._outcome.put_back = []
         self._outcome.blocked = []
         self._outcome.error = None
-        # 只有「恰好一条」时才指名道姓；多条用 revert/blocked 表达，不硬塞单值。
-        self._outcome.source = (
-            evaluation.to_revert[0].path if len(evaluation.to_revert) == 1 else None
-        )
+        # source 先置 None，等循环结束、确认**真的放回去了**再填（见循环后）。
+        # 不能在循环前按 len==1 无条件填：单条失败时 revert=false 却给 source，
+        # 直接违反契约「未回滚时为 null」。
+        self._outcome.source = None
         for path in evaluation.revert_blocked:
             # She asked for it back and the value we would have written could
             # not be shown to be hers (see ``GuardState._revert_source``). That
@@ -1522,26 +1522,54 @@ class DignityGuardPlugin(NekoPluginBase):
             else:
                 self._outcome.put_back.append(change.path)
         # 有拦住 ⟹ 必须报出去；没拦住 ⟹ blocked_reported 保持 None（本轮没走这条分支）。
+        # 传 reasons：让"崩溃"与"证明不了原值"在用户侧用不同的话说。
         if self._outcome.blocked:
-            self._outcome.blocked_reported = self._push_blocked_notice(self._outcome.blocked)
+            self._outcome.blocked_reported = self._push_blocked_notice(
+                self._outcome.blocked, self._revert_outcomes
+            )
+        # source 只在「恰好一条 且 真的放回去了」时填。
+        # 契约说「未回滚时为 null」——失败、被拦、多条，一律 None。
+        # 多条不硬塞第一个：单值表达不了多项，那属于把信息说丢还装作说了。
+        if (
+            len(evaluation.to_revert) == 1
+            and self._outcome.put_back == [evaluation.to_revert[0].path]
+        ):
+            self._outcome.source = evaluation.to_revert[0].path
 
-    def _push_blocked_notice(self, paths: list[str]) -> bool:
+    def _push_blocked_notice(
+        self, paths: list[str], reasons: dict[str, str] | None = None
+    ) -> bool:
         """把「她要求放回、但放不回」说给用户听，返回有没有递到。
 
         为什么走 ``ai_behavior="read"`` 而不是 ``"respond"``：
           这条是**系统告知**，不是她的表态。让她为一件"我做不到"的事即兴发言，
           等于把"报告失败"变成"她有没有心情说话"，而后者本该由用户那个
           "主动搭话"开关决定 —— 一件事实陈述不该被那个开关掐掉。
+
+        ★ 2026-10-28：``reasons`` 用来区分"证明不了原值"与"我放回时出错了"。
+          对前者说"证明不了原值是你的"是实话；对后者说是**假话**——
+          代码崩了跟"她的原值丢了"是两件事，混用一句话会让用户在错误的原因上
+          做决定（例如去翻备份，而其实该看日志）。
         """
+        reasons = reasons or {}
         lines = [self._text("speech.blocked.intro", default=DEFAULT_SPEECH_BLOCKED_INTRO)]
         for path in sorted(paths):
-            lines.append(
-                self._text(
-                    "speech.blocked.item",
-                    default=DEFAULT_SPEECH_BLOCKED_ITEM,
-                    name=_friendly_path(path),
+            if reasons.get(path) == "exception":
+                lines.append(
+                    self._text(
+                        "speech.blocked.item_error",
+                        default="· {name}（我放回时出错了，没有动它）",
+                        name=_friendly_path(path),
+                    )
                 )
-            )
+            else:
+                lines.append(
+                    self._text(
+                        "speech.blocked.item",
+                        default=DEFAULT_SPEECH_BLOCKED_ITEM,
+                        name=_friendly_path(path),
+                    )
+                )
         lines.append(self._text("speech.blocked.outro", default=DEFAULT_SPEECH_BLOCKED_OUTRO))
         try:
             receipt = self.push_message(

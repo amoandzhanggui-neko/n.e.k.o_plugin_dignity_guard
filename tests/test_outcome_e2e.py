@@ -93,7 +93,9 @@ def _plugin(*, submit: bool = True, revert_reason: str = "baseline_lost"):
     #   因此拿到 `delivered=False` 而不是崩。生产里的后果：一处笔误 ⟹ 通知永远发不出去，
     #   而日志只说"没送到"，看不出是代码 bug。已列入第 5 轮待办，本轮不改（属行为变更）。
     fake._state_after = lambda ev: DignityGuardPlugin._state_after(fake, ev)
-    fake._push_blocked_notice = lambda paths: DignityGuardPlugin._push_blocked_notice(fake, paths)
+    fake._push_blocked_notice = lambda paths, reasons=None: DignityGuardPlugin._push_blocked_notice(
+        fake, paths, reasons
+    )
     fake._delivered = DignityGuardPlugin._delivered
     fake._note_delivery_failure = lambda p, e: DignityGuardPlugin._note_delivery_failure(fake, p, e)
     return fake, pushed
@@ -383,3 +385,53 @@ def test_error_records_exception_without_aborting_the_round() -> None:
     assert report["error"] == "revert_exception:RuntimeError"
     assert report["blocked"] is True, "抛异常的那条要算拦住，不能算放回去了"
     assert report["revert"] is False
+
+
+def test_source_is_none_when_the_single_revert_fails() -> None:
+    """契约「未回滚时为 null」：单条失败时 source 必须是 None，不许照样填路径。"""
+    fake, _ = _plugin(revert_reason="baseline_lost")
+    evaluation = Evaluation()
+    evaluation.to_revert = [_change()]
+    asyncio.run(DignityGuardPlugin._run_reverts(fake, evaluation))
+    report = DignityGuardPlugin._summary(fake, evaluation)
+    assert report["revert"] is False
+    assert report["source"] is None, "没放回去就不该指名道姓"
+
+
+def test_exception_on_one_path_keeps_the_others_going() -> None:
+    """混合场景：一条崩溃、另一条成功 ⟹ error 记下，成功的那条仍算 revert。"""
+    fake, pushed = _plugin(revert_reason="")
+
+    async def mixed(change):  # noqa: ANN001
+        if change.path == "chars.one":
+            raise RuntimeError("kaboom")
+        return ""
+
+    fake._revert_change = mixed
+    evaluation = Evaluation()
+    evaluation.to_revert = [_change("chars.one"), _change("chars.two")]
+    asyncio.run(DignityGuardPlugin._run_reverts(fake, evaluation))
+    report = DignityGuardPlugin._summary(fake, evaluation)
+    assert report["error"] == "revert_exception:RuntimeError"
+    assert report["blocked"] is True, "崩的那条要算拦住"
+    assert report["revert"] is True, "另一条成功了，revert 必须是 True"
+    assert report["source"] is None, "多条时不给单值"
+    assert pushed, "拦住的那条必须留下用户可见出口"
+
+
+def test_exception_uses_its_own_wording() -> None:
+    """崩溃不能对用户说「证明不了原值是你的」—— 那是假话。"""
+    import json as _json
+
+    fake, pushed = _plugin(revert_reason="")
+
+    async def boom(change):  # noqa: ANN001
+        raise RuntimeError("kaboom")
+
+    fake._revert_change = boom
+    evaluation = Evaluation()
+    evaluation.to_revert = [_change()]
+    asyncio.run(DignityGuardPlugin._run_reverts(fake, evaluation))
+    blob = _json.dumps(pushed, ensure_ascii=False)
+    assert "出错了" in blob, "崩溃要用它自己的说法"
+    assert "证明" not in blob, "不许把崩溃说成「证明不了原值」"

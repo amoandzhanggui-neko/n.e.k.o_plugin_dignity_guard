@@ -48,7 +48,7 @@
 |---|---|---|---|---|
 | error | str\|null | `{null,present}` | `always` | 只在异常路径有值；正常必须是 null（2026-10-28 补实现后，异常时允许有值） |
 | revert | bool | `{present}` | `always` | 是否已回滚 |
-| source | str\|null | `{null,present}` | `always` | 回滚来源字段路径；未回滚时为 null |
+| source | str\|null | `{null,present}` | `len(to_revert)==1 且 revert==true` | 回滚来源字段路径；未回滚时为 null |
 | blocked | bool | `{present}` | `always` | 是否被拦 |
 | block_reported | bool\|null | `{present,null}` | `always` | 拦了必须有出口；未进 blocked 分支时为 null |
 | notified | bool\|null | `{present,null}` | `always` | **未证实，见 U1** |
@@ -63,7 +63,11 @@
   - 只把状态塞进 `revert_blocked`、不给上层可见出口 ⟹ `block_reported=false` ⟹ **判红**
 - **depends**：`[]`
 
-**v2 判红**：正例实测里 `error` 若出现非 null 值 ⟹ 红（`allowed={null}`）；
+**v2 判红（2026-10-28 修正为**正反两侧**，原来只有一侧）**：
+- **正常轮**（未捕获异常）：`error` 必须是 `null`；出现非 null ⟹ **红**
+- **异常轮**（捕获到异常）：`error` 必须非 null（形如 `revert_exception:<类型>`）；仍是 `null` ⟹ **红**（说明捕获了却没记）
+- 只写"正常轮必须 null"是**半个判据**：它拦不住"异常发生但没记下来"，而后者正是静默失效。
+
 `revert`/`blocked` 若整个键缺失 ⟹ 红（`allowed={present}`）。
 
 ---
