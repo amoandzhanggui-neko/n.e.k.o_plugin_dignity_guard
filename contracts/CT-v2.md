@@ -158,9 +158,9 @@ cd N.E.K.O && python -m pytest plugin/plugins/dignity_guard/tests/ -q -k "rev"
 
 | 声明字段 | 实现位置 | 说明 |
 |---|---|---|
-| `error` | **无独立字段（刻意不加）** | 见下方说明 |
+| `error` | ✅ `RoundOutcome.error` → `summary["error"]` | 异常路径有值（`revert_exception:<类型>`）；正常 ⟹ `null`（2026-10-28 补） |
 | `revert` | ✅ `RoundOutcome.put_back` → `summary["revert"]` (bool) | **本轮**是否真的放回去至少一项 |
-| `source` | **无独立字段（刻意不加）** | 见下方说明 |
+| `source` | ✅ `RoundOutcome.source` → `summary["source"]` (list[str]) | 本轮真的放回去的路径列表；没有 ⟹ `[]`（2026-10-28 补，并由单值改为列表） |
 | `blocked` | ✅ `RoundOutcome.blocked` → `summary["blocked"]` (bool) | **本轮**有放不回去的；此前只有内部状态 `revert_blocked` |
 | `block_reported` | ✅ `RoundOutcome.blocked_reported` → `summary["block_reported"]` | 有拦住 ⟹ 那条通知有没有递到；**没拦住 ⟹ `null`**（不写成 false） |
 | `notified` | ✅ `RoundOutcome.notice_delivered` → `summary["notified"]` | 有争议 ⟹ 通知有没有递到；**没争议 ⟹ `null`** |
@@ -179,12 +179,9 @@ cd N.E.K.O && python -m pytest plugin/plugins/dignity_guard/tests/ -q -k "rev"
 
 优先级按"用户有多需要知道"排：出事 > 等她表态 > 已修复 > 她改主意 > 她认了 > 无事。
 
-**`error` 和 `source` 为什么故意不补**（不是漏了）：
-
-- `error`：实现里用「返回值 / 异常 / `last_error`」表达失败。再加一个 `error` 字符串字段，
-  会诱导调用方去读字符串、而不是读错误码 —— 那就是"同一件事两套口径"。
-- `source`：`_revert_source()` 是**一个推导过程**（证明这个值还是不是她的），
-  不是一个字符串标签。把它压成一个字符串，等于把推导降级成标签。
+**2026-10-28 更正**：上一版此处论证「error/source 故意不补」（理由是"压成标签＝把推导降级"）。
+该论证**已作废** —— 掌柜选了补实现，两者现已存在。保留此声明只为说明"文档里为什么曾经没有它们"，
+原文见 git 历史。**不删历史，但不再让两套说法并存：本节以表格为准。**
 
 ⟹ **C-REV-1 / C-REV-2 的分类：已实现**（单元级 + 半端到端，见 U3 的边界说明）。
 
@@ -242,7 +239,7 @@ cd N.E.K.O && python -m pytest plugin/plugins/dignity_guard/tests/ -q -k "rev"
 |---|---|---|---|
 | `error` | `test_error_records_exception_without_aborting_the_round` | `test_error_is_none_on_normal_path` | 齐 |
 | `revert` | `test_outcome_e2e.py:159` | `:118` | 齐 |
-| `source` | `test_source_names_path_when_exactly_one_revert` | `test_source_is_none_when_multiple_or_none` | 齐 |
+| `source` | `test_source_names_path_when_exactly_one_revert` | `test_source_lists_every_reverted_path` | 齐 |
 | `blocked` | `:117` | `:160` | 齐 |
 | `block_reported` | `:119` | `:146`、`:161` | 齐 |
 | `notified` | `:200` | **无** | 缺反例 |

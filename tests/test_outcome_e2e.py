@@ -435,3 +435,31 @@ def test_exception_uses_its_own_wording() -> None:
     blob = _json.dumps(pushed, ensure_ascii=False)
     assert "出错了" in blob, "崩溃要用它自己的说法"
     assert "证明" not in blob, "不许把崩溃说成「证明不了原值」"
+
+
+def test_source_and_blocked_partition_the_targets() -> None:
+    """分区不变式：成功的进 source、失败的进 blocked，并集 = 本轮全部目标。
+
+    为什么单立一条：``source`` 是 ``{present}``（空列表也合法），
+    "该有却空"和"本来没有"形状一样，单看允许态永远判不了红。
+    唯一能抓的是这条等式 —— 两个集合漏掉任何一条路径都会当场不成立。
+    """
+    fake, _ = _plugin(revert_reason="")
+
+    async def mixed(change):  # noqa: ANN001
+        if change.path == "chars.bad":
+            raise RuntimeError("kaboom")
+        return ""
+
+    fake._revert_change = mixed
+    evaluation = Evaluation()
+    evaluation.to_revert = [_change("chars.ok"), _change("chars.bad")]
+    evaluation.revert_blocked = ["chars.nobase"]
+    asyncio.run(DignityGuardPlugin._run_reverts(fake, evaluation))
+
+    report = DignityGuardPlugin._summary(fake, evaluation)
+    assert set(report["source"]) == {"chars.ok"}, "只有真的回去的才算 source"
+    assert set(fake._outcome.blocked) == {"chars.bad", "chars.nobase"}
+    assert set(report["source"]) | set(fake._outcome.blocked) == {
+        "chars.ok", "chars.bad", "chars.nobase"
+    }, "并集必须等于本轮全部目标，少一条就是丢路径"
