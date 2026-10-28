@@ -59,7 +59,7 @@
      ],
      "name": "source",
      "type": "str|null",
-     "when": "always"
+     "when": "len(to_revert)==1 且 revert==true"
     },
     {
      "_bad_state": [],
@@ -72,7 +72,7 @@
      "when": "always"
     }
    ],
-   "fields_hash": "66c3fdac2c8496d1",
+   "fields_hash": "c89172743c66304e",
    "seam_id": "C-REV-1",
    "source": "contracts/CT-v2.md#C-REV-1"
   },
@@ -155,6 +155,6 @@
  },
  "contracts_version": "CT-v2",
  "generated_by": "seam_snapshot.py",
- "hash": "4f3feeb008c687fe",
+ "hash": "f70decad8af03b82",
  "note": "只存 key 集/类型/允许态/when，不存值（判红 4）；不含时间戳与绝对路径，保证确定性"
 }
