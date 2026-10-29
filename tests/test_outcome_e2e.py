@@ -463,3 +463,42 @@ def test_source_and_blocked_partition_the_targets() -> None:
     assert set(report["source"]) | set(fake._outcome.blocked) == {
         "chars.ok", "chars.bad", "chars.nobase"
     }, "并集必须等于本轮全部目标，少一条就是丢路径"
+
+
+# ── 2026-10-29：补 M2-6 / M2-7 两条反例（完工定义第 1 条要「正例+反例」）──
+
+def test_notified_false_reaches_summary_when_host_rejects() -> None:
+    """反例：推送失败时 ``summary['notified']`` 必须是 False。
+
+    正例（``test_notified_flows_into_summary``）只证明 True 能流下去；
+    不补这一条，"调用了就算送达"这种写法照样能全绿 —— 而那正是本插件要抓的假成功。
+    """
+    fake, _ = _plugin(submit=False)
+    evaluation = Evaluation()
+    evaluation.raised = [_dispute()]
+
+    fake._outcome.notice_delivered = DignityGuardPlugin._speak(fake, evaluation)
+    summary = DignityGuardPlugin._summary(fake, evaluation)
+
+    assert summary["notified"] is False, "宿主明确回执失败，不许写成 True"
+
+
+def test_status_after_prefers_blocked_over_reverted() -> None:
+    """反例：同一轮里既有成功放回、也有放不回的 ⟹ 必须是 ``blocked``。
+
+    优先级写反（先看 put_back）时，这条会输出 ``reverted`` —— 用户看到"已修复"，
+    实际上还有一条没回去。这是六值里最容易写错的一处排序。
+    """
+    fake, _ = _plugin(revert_reason="")
+
+    async def mixed(change):  # noqa: ANN001
+        return "baseline_lost" if change.path == "chars.bad" else ""
+
+    fake._revert_change = mixed
+    evaluation = Evaluation()
+    evaluation.to_revert = [_change("chars.ok"), _change("chars.bad")]
+    asyncio.run(DignityGuardPlugin._run_reverts(fake, evaluation))
+
+    summary = DignityGuardPlugin._summary(fake, evaluation)
+    assert summary["revert"] is True, "确实有一条放回去了"
+    assert summary["status_after"] == "blocked", "有放不回的，就必须先说坏消息"
