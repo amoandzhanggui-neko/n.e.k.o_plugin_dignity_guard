@@ -248,5 +248,5 @@ cd N.E.K.O && python -m pytest plugin/plugins/dignity_guard/tests/ -q -k "rev"
 **合计**：齐 **7** / 缺样例 0 / 未实现 0（= 7 字段）。2026-10-29 补上最后两条反例（M2-6/7 关闭）。
 
 **M2 未证实项**：
-- M2-6 `notified` 反例：补一条「送达失败但 summary 说 True」的负向用例。
+- ~~M2-6 `notified` 反例~~ —— **已关闭（2026-10-29）**：`test_notified_false_reaches_summary_when_host_rejects`。
 - ~~M2-7 `status_after` 反例~~ —— **已关闭（2026-10-29）**：`test_status_after_prefers_blocked_over_reverted`。

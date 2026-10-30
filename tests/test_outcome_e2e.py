@@ -502,3 +502,46 @@ def test_status_after_prefers_blocked_over_reverted() -> None:
     summary = DignityGuardPlugin._summary(fake, evaluation)
     assert summary["revert"] is True, "确实有一条放回去了"
     assert summary["status_after"] == "blocked", "有放不回的，就必须先说坏消息"
+
+
+# ── 2026-10-30：关闭 M2-9 / M2-10 ──
+
+def test_error_records_real_method_failure_not_just_a_stub() -> None:
+    """M2-9：让**真实**的 `_revert_change` 跑（不打桩），异常必须被记下来。
+
+    之前那条用例是把方法整个换成抛异常的函数 —— 那只证明"外层捕获能用"，
+    不证明真实方法出错时也会被接住。这里不替换方法，只抽掉它的依赖
+    （`_client`），让真实方法自己抛 `AttributeError`。
+    """
+    fake, _ = _plugin()
+    fake._revert_change = DignityGuardPlugin._revert_change.__get__(fake)
+
+    evaluation = Evaluation()
+    evaluation.to_revert = [_change()]
+    asyncio.run(DignityGuardPlugin._run_reverts(fake, evaluation))
+
+    report = DignityGuardPlugin._summary(fake, evaluation)
+    assert report["error"] == "revert_exception:AttributeError"
+    assert report["blocked"] is True, "真实方法抛了，这条要算拦住"
+
+
+def test_delivery_failure_kinds_use_different_health_keys() -> None:
+    """M2-10：`summary['notified']` 只是结果，**原因**靠 health key 区分。
+
+    两种失败在 summary 里都是 ``notified=False`` —— 这是契约要的（字段是 bool）。
+    但排查时不能混：外部故障查宿主/网络，编程错误要改代码。
+    """
+    fake, _ = _plugin()
+    keys: list[str] = []
+    fake._health = SimpleNamespace(record=lambda k: keys.append(k))
+    fake.logger = SimpleNamespace(
+        warning=lambda *a, **k: None, error=lambda *a, **k: None, exception=lambda *a, **k: None,
+    )
+    fake._note_delivery_failure = lambda p, e: DignityGuardPlugin._note_delivery_failure(fake, p, e)
+
+    DignityGuardPlugin._note_delivery_failure(fake, "notice", ConnectionError("host down"))
+    DignityGuardPlugin._note_delivery_failure(fake, "notice", AttributeError("typo"))
+
+    assert keys == ["notice_not_delivered", "notice_code_error"], (
+        "两类失败必须记成不同的 key，否则排查只能从零猜"
+    )
