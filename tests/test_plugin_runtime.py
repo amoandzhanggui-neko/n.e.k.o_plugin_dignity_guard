@@ -815,3 +815,68 @@ def test_an_empty_endpoint_still_means_the_built_in_relay(sandbox, main_server) 
             await plugin.on_shutdown()
 
     assert asyncio.run(scenario()) == DEFAULT_FEEDBACK_ENDPOINT
+
+
+def test_malformed_characters_payload_is_a_read_failure_not_an_error(
+    sandbox, main_server
+) -> None:
+    """M2-9 改判（2026-10-31）：畸形回执走的是 **read_failed**，不是 `error`。
+
+    原先登记的"生产可达路径"是：宿主返回 list ⟹ `payload.get("猫娘")` 抛
+    AttributeError ⟹ `error`。**这条路不可达** —— 真客户端在
+    `main_server_client.fetch_characters_raw`（第 295-296 行）就先判
+    `isinstance(payload, Mapping)`，不是对象直接抛 `MainServerUnreachable`。
+    于是插件拿到的永远是 dict，`payload.get` 那行在生产上碰不到 list。
+
+    这条用例用**真客户端 + 真 HTTP + 真 JSON 解析**把真实结局钉住：
+    `read_failed`（拦住、说出口、不发写请求），`error` 保持 None。
+    """
+    from plugin.plugins.dignity_guard.settings_guard import (
+        LEVEL_L1,
+        Evaluation,
+        SettingChange,
+        Value,
+    )
+
+    fake, base_url = main_server
+    ctx = _Ctx(base_url=base_url)
+    plugin = DignityGuardPlugin(ctx)
+
+    async def scenario() -> dict[str, Any]:
+        try:
+            await plugin.on_startup()
+            writes_before = list(fake.writes)
+            fake.characters = []  # 畸形回执：本该是 {"猫娘": {...}}
+
+            change = SettingChange(
+                path="characters.猫娘.雪.核心特质",
+                level=LEVEL_L1,
+                before=Value.of(["理智"]),
+                after=Value.of(["暴躁"]),
+            )
+            evaluation = Evaluation()
+            evaluation.to_revert = [change]
+
+            await plugin._run_reverts(evaluation)
+            return {
+                "report": plugin._summary(evaluation),
+                "reasons": dict(plugin._revert_outcomes),
+                "writes": [w for w in fake.writes if w not in writes_before],
+            }
+        finally:
+            await plugin.on_shutdown()
+
+    result = asyncio.run(scenario())
+
+    assert result["reasons"] == {"characters.猫娘.雪.核心特质": "read_failed"}, (
+        "读到的东西不可信 ⟹ 如实记成「读失败」，不是崩，也不是放回去了"
+    )
+    assert result["report"]["error"] is None, (
+        "`error` 是留给**代码 bug** 的；回执形状不对属于「读不到」，不是程序出错"
+    )
+    assert result["report"]["blocked"] is True, "拦住那条要让用户看得见"
+    assert result["report"]["revert"] is False, "它没放回去，就不能把它记成放回去了"
+    assert result["report"]["put_back"] == 0, (
+        "`put_back` 数的是「最近一次回滚里成功的条数」，这条一条都没成"
+    )
+    assert result["writes"] == [], "读到的角色资料不可信时，绝不能拿它去拼整份替换的 PUT"

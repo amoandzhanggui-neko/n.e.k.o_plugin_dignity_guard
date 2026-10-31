@@ -1553,7 +1553,7 @@ class DignityGuardPlugin(NekoPluginBase):
                 lines.append(
                     self._text(
                         "speech.blocked.item_error",
-                        default="· {name}（我放回时出错了，没有动它）",
+                        default="· {name}（我放回时出错了，不知道有没有改动，请核对）",
                         name=_friendly_path(path),
                     )
                 )

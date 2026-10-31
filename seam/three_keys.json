@@ -1,7 +1,7 @@
 {
  "keys": {
   "B1-guard": {
-   "contract": "0015345cb6fc0632",
+   "contract": "0cb406b5247df9b0",
    "src": "3b7014cdb4e3f760",
    "upstream": "e3b0c44298fc1c14"
   },
@@ -27,7 +27,7 @@
   },
   "B6-entry": {
    "contract": "e3b0c44298fc1c14",
-   "src": "a17012630fd50798",
+   "src": "50c7867f0c620c11",
    "upstream": "50f3ef5275b1a290"
   }
  }

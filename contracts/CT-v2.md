@@ -250,3 +250,20 @@ cd N.E.K.O && python -m pytest plugin/plugins/dignity_guard/tests/ -q -k "rev"
 **M2 未证实项**：
 - ~~M2-6 `notified` 反例~~ —— **已关闭（2026-10-29）**：`test_notified_false_reaches_summary_when_host_rejects`。
 - ~~M2-7 `status_after` 反例~~ —— **已关闭（2026-10-29）**：`test_status_after_prefers_blocked_over_reverted`。
+
+---
+
+### N1 · 拦住通知的措辞约束（2026-10-31 补）
+
+> 背景：10-30 改了 `_push_blocked_notice()` 里"代码出错"那一句的措辞，
+> 属于**语义变更**（原来对用户承诺"没有动它"）。措辞本身不是契约字段，
+> 但它约束的是"用户被引导去看哪里"，所以按契约级约束记下来：
+
+1. **④a 原值证明不了** ⟹ 可以说"所以我没动"（确实没写出去）。
+2. **④b 放回时代码出错** ⟹ **不得**说"没有动"或"没动它"。
+   写请求是**先发后解析回执**（`main_server_client.py` 里 `dict(payload)` 在写成功之后），
+   异常可能发生在**值已经落盘之后**。只能说"不知道有没有改动，请核对"。
+3. 反例判据：`tests/test_outcome_e2e.py::test_exception_uses_its_own_wording`
+   断言 `"没有动它" not in blob` —— 这句话重新出现 ⟹ 判红。
+   正例判据：`tests/test_plugin_runtime.py::test_malformed_characters_payload_is_a_read_failure_not_an_error`
+   （坏回执走 `read_failed`，不进 `error`）。

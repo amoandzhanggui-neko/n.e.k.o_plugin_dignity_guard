@@ -118,7 +118,12 @@ class FakeMainServer:
         if path == "/api/config/user_language":
             return 200, {"success": True, "language": self.user_language}, {}
         if path == "/api/characters":
-            return 200, dict(self.characters), {}
+            # 允许把它置成**畸形形状**（如 list）：宿主换版本、中间层包装变了，
+            # 插件拿到的就不是 dict。用 isinstance 放行，是为了让这条错误路径
+            # 能用「真客户端 + 真 HTTP + 真 JSON 解析」复现，
+            # 而不是只能靠把方法换掉来打桩。
+            body = self.characters if isinstance(self.characters, list) else dict(self.characters)
+            return 200, body, {}
         if path == "/api/config/page_config":
             return 200, dict(self.page_config), {}
         if path == "/api/config/core_api":

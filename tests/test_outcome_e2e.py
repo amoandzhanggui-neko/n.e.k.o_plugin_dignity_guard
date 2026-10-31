@@ -435,6 +435,9 @@ def test_exception_uses_its_own_wording() -> None:
     blob = _json.dumps(pushed, ensure_ascii=False)
     assert "出错了" in blob, "崩溃要用它自己的说法"
     assert "证明" not in blob, "不许把崩溃说成「证明不了原值」"
+    # ★ 2026-10-30：也不能承诺"没动" —— 写请求可能已经发出去了，
+    #   异常发生在解析回执时（main_server_client.py:315 先写后 dict(payload)）。
+    assert "没有动它" not in blob, "崩溃时不知道动没动，不能写「没有动它」"
 
 
 def test_source_and_blocked_partition_the_targets() -> None:

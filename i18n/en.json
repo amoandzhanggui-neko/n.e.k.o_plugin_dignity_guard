@@ -245,6 +245,7 @@
   "speech.notice.outro": "(This is written for you to read, not me starting a conversation. Say the word if you want me to stop watching.)",
   "speech.blocked.intro": "[Dignity Guard] These were changed and I meant to put them back — but I could not prove the old value was still yours, so I left them alone:",
   "speech.blocked.item": "· {name}",
+  "speech.blocked.item_error": "· {name} (something went wrong while putting it back — I cannot tell whether it changed, so please check)",
   "speech.blocked.outro": "(Saying 'left it alone' rather than 'put it back' is the point: had I done nothing and said nothing, you would have no way to tell the two apart.)",
   "actions.askHer.label": "Ask her",
   "entry.askHer.name": "Ask her what she thinks",

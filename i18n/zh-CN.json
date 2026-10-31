@@ -245,6 +245,7 @@
   "speech.notice.outro": "（这条是写给你看的，不是我在主动搭话。想让我别再管，说一声就行。）",
   "speech.blocked.intro": "[尊严守卫] 这些被改的东西我本来想放回去，但证明不了原来的值还是你的，所以我没动：",
   "speech.blocked.item": "· {name}",
+  "speech.blocked.item_error": "· {name}（我放回时出错了，不知道有没有改动，请核对）",
   "speech.blocked.outro": "（说「没动」而不是「放回去了」，这就是重点：要是我既没做事也不出声，你就没办法把这两者分开。）",
   "actions.askHer.label": "问问她",
   "entry.askHer.name": "问问她怎么想",
