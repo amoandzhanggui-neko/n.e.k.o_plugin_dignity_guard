@@ -674,7 +674,7 @@ class DignityGuardPlugin(NekoPluginBase):
         try:
             config = await self.config.dump(timeout=5.0)
         except Exception as exc:  # configuration is optional, never fatal
-            self.logger.warning("dignity_guard: config read failed: {}", exc)
+            self.logger.warning("dignity_guard: config read failed: %s", exc)
         section = config.get("dignity_guard") if isinstance(config, dict) else None
         section = section if isinstance(section, dict) else {}
 
@@ -921,22 +921,22 @@ class DignityGuardPlugin(NekoPluginBase):
         try:
             result = await self.store.get(key)
         except Exception as exc:
-            self.logger.warning("dignity_guard: store read failed: {}", exc)
+            self.logger.warning("dignity_guard: store read failed: %s", exc)
             return None
         if isinstance(result, Ok):
             return result.value
-        self.logger.warning("dignity_guard: store read rejected: {}", result)
+        self.logger.warning("dignity_guard: store read rejected: %s", result)
         return None
 
     async def _store_write(self, key: str, value: Any) -> bool:
         try:
             result = await self.store.set(key, value)
         except Exception as exc:
-            self.logger.warning("dignity_guard: store write failed: {}", exc)
+            self.logger.warning("dignity_guard: store write failed: %s", exc)
             return False
         if isinstance(result, Ok):
             return True
-        self.logger.warning("dignity_guard: store write rejected: {}", result)
+        self.logger.warning("dignity_guard: store write rejected: %s", result)
         return False
 
     # ------------------------------------------------------------------
@@ -1025,7 +1025,7 @@ class DignityGuardPlugin(NekoPluginBase):
             except MainServerUnreachable as exc:
                 watcher.last_error = str(exc)
                 self._health.record("main_server_unreachable")
-                self.logger.warning("dignity_guard: {}", exc)
+                self.logger.warning("dignity_guard: %s", exc)
                 return Err(
                     SdkError(
                         self._text("errors.unreachable", endpoint=exc.endpoint),
@@ -1342,7 +1342,7 @@ class DignityGuardPlugin(NekoPluginBase):
                 )
             return
         self._health.record(f"{purpose}_not_delivered")
-        self.logger.warning("dignity_guard: {} not delivered: {}", purpose, exc)
+        self.logger.warning("dignity_guard: %s not delivered: %s", purpose, exc)
 
     # ── 给模型调用的工具（@llm_tool 在启动时自动注册）──────────────────
     # `@plugin_entry` 只是"入口点"：给面板按钮、内部调用、插件间调用用的，
@@ -1411,7 +1411,7 @@ class DignityGuardPlugin(NekoPluginBase):
             name = str(payload.get("当前猫娘") or "").strip()
             if name:
                 self._lanlan_name = name
-                self.logger.info("dignity_guard: target session = {}", name)
+                self.logger.info("dignity_guard: target session = %s", name)
         except Exception:  # noqa: BLE001 - 读不到不该让本轮轮询失败
             pass
 
@@ -1715,7 +1715,7 @@ class DignityGuardPlugin(NekoPluginBase):
             payload = await client.fetch_characters_raw()
         except MainServerUnreachable as exc:
             self._health.record("away_restore_read_failed")
-            self.logger.warning("dignity_guard: away-restore could not read: {}", exc)
+            self.logger.warning("dignity_guard: away-restore could not read: %s", exc)
             return "read_failed"
 
         catgirls = payload.get("猫娘")
@@ -1731,7 +1731,7 @@ class DignityGuardPlugin(NekoPluginBase):
             await client.put_catgirl(name, updated)
         except MainServerUnreachable as exc:
             self._health.record("away_restore_write_failed")
-            self.logger.warning("dignity_guard: away-restore failed: {}", exc)
+            self.logger.warning("dignity_guard: away-restore failed: %s", exc)
             return "write_failed"
         return ""
 
@@ -1844,7 +1844,7 @@ class DignityGuardPlugin(NekoPluginBase):
             payload = await client.fetch_characters_raw()
         except MainServerUnreachable as exc:
             self._health.record("revert_read_failed")
-            self.logger.warning("dignity_guard: revert could not read: {}", exc)
+            self.logger.warning("dignity_guard: revert could not read: %s", exc)
             return "read_failed"
 
         catgirls = payload.get("猫娘")
@@ -1863,7 +1863,7 @@ class DignityGuardPlugin(NekoPluginBase):
             await client.put_catgirl(name, updated)
         except MainServerUnreachable as exc:
             self._health.record("revert_write_failed")
-            self.logger.warning("dignity_guard: revert failed: {}", exc)
+            self.logger.warning("dignity_guard: revert failed: %s", exc)
             return "write_failed"
         return ""
 
@@ -1929,7 +1929,7 @@ class DignityGuardPlugin(NekoPluginBase):
         except OSError as exc:
             self._memory_error = "memory_unreadable"
             self._health.record("memory_unreadable")
-            self.logger.warning("dignity_guard: memory scan failed: {}", exc)
+            self.logger.warning("dignity_guard: memory scan failed: %s", exc)
             return
         self._memory_error = ""
 
@@ -1976,7 +1976,7 @@ class DignityGuardPlugin(NekoPluginBase):
         except OSError as exc:
             self._memory_error = "backup_failed"
             self._health.record("memory_backup_failed")
-            self.logger.warning("dignity_guard: memory backup failed: {}", exc)
+            self.logger.warning("dignity_guard: memory backup failed: %s", exc)
             return
 
         self._last_memory_backup_at = now
@@ -3174,7 +3174,7 @@ class DignityGuardPlugin(NekoPluginBase):
             # sent" here would send the user looking for a problem they do not
             # have — and possibly rewriting a report that was never at fault.
             self._health.record("feedback_rate_limited")
-            self.logger.warning("dignity_guard: feedback rate limited: {}", exc)
+            self.logger.warning("dignity_guard: feedback rate limited: %s", exc)
             return Err(
                 SdkError(
                     self._text(
@@ -3189,7 +3189,7 @@ class DignityGuardPlugin(NekoPluginBase):
             )
         except FeedbackUndeliverable as exc:
             self._health.record("feedback_not_delivered")
-            self.logger.warning("dignity_guard: feedback undeliverable: {}", exc)
+            self.logger.warning("dignity_guard: feedback undeliverable: %s", exc)
             return Err(
                 SdkError(
                     self._text(
@@ -3330,7 +3330,7 @@ class DignityGuardPlugin(NekoPluginBase):
             await deliver(endpoint, envelope)
         except FeedbackRateLimited as exc:
             self._health.record("wish_rate_limited")
-            self.logger.warning("dignity_guard: wish rate limited: {}", exc)
+            self.logger.warning("dignity_guard: wish rate limited: %s", exc)
             return Err(
                 SdkError(
                     self._text(
@@ -3345,7 +3345,7 @@ class DignityGuardPlugin(NekoPluginBase):
             )
         except FeedbackUndeliverable as exc:
             self._health.record("wish_not_delivered")
-            self.logger.warning("dignity_guard: wish undeliverable: {}", exc)
+            self.logger.warning("dignity_guard: wish undeliverable: %s", exc)
             return Err(
                 SdkError(
                     self._text(
@@ -3472,7 +3472,7 @@ class DignityGuardPlugin(NekoPluginBase):
         try:
             available = await asyncio.to_thread(scan_memory, backup_root / chosen / MEMORY_DIR_NAME)
         except OSError as exc:
-            self.logger.warning("dignity_guard: backup unreadable: {}", exc)
+            self.logger.warning("dignity_guard: backup unreadable: %s", exc)
             return Err(
                 SdkError(
                     self._text(
