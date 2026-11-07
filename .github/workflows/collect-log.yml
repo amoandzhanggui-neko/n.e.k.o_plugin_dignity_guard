@@ -18,6 +18,8 @@ jobs:
     if: github.event.workflow_run.conclusion == 'failure'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Fetch failed job log
         env:
           GH_TOKEN: ${{ github.token }}
@@ -33,7 +35,7 @@ jobs:
           echo "failed_job=${JOB_ID:-none}"
           : > full.log
           if [ -n "${JOB_ID:-}" ]; then
-            gh api "repos/$REPO/actions/jobs/$JOB_ID/logs" > full.log 2>>err.txt || true
+            gh api --allow-escape-sequences "repos/$REPO/actions/jobs/$JOB_ID/logs" > full.log 2>>err.txt || true
           fi
           if [ ! -s full.log ]; then
             gh run view "$RUN_ID" --log > full.log 2>>err.txt || true
