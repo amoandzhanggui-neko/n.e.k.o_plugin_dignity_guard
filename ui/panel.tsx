@@ -573,6 +573,19 @@ export default function DignityGuardPanel(
 
   return (
     <Page title={t("panel.title")} subtitle={t("ui.subtitle")}>
+      {/* ★ 弹窗定位修正（2026-11-07 掌柜报障：点引导/反馈/愿望单会往下瞬移一大段，
+          二级界面位置和大小都对不上面板）。
+          原因不是我们写错，是宿主 Modal 的实现与 iframe 场景不匹配：
+            · ui-kit/styles.css: `.neko-modal-backdrop { position: fixed; inset: 0; place-items: center }`
+            · HostedSurfaceFrame.vue: iframe 高度被定死为 clamp(520px, 100vh-220px, 1200px)
+            · 同文件样式: body { min-height: 100vh } —— 在 iframe 里 100vh = iframe 高度
+          于是弹窗相对"整个 iframe"垂直居中，而不是相对看得见的面板；iframe 比内容高，
+          弹窗就落到下方很远，遮罩也按 iframe 铺开 ⟹ 位置错、尺寸错。
+          改法：顶部对齐 + 高度不超过 iframe，超了自己滚。不动宿主的 modal 结构。 */}
+      <style>{`
+        .neko-modal-backdrop { place-items: start center !important; padding: 14px !important; }
+        .neko-modal { max-height: calc(100% - 28px) !important; overflow: auto !important; }
+      `}</style>
       <Stack>
         {/* ★ 右上角两个入口：「新手引导」+「反馈」（2026-09-26 掌柜定）。
             为什么并排放在这里：
