@@ -1,0 +1,64 @@
+# 诊断用途（阿墨 2026-11-07 加）。
+# 背景：仓库公开，但 Actions 日志接口要管理员权限，匿名读不到；
+# Verify 失败时看不到 Release check 的真实报错。
+# 做法：等 Verify 整个跑完后触发（workflow_run），把失败作业日志推进 ci-log 分支。
+name: Collect verify log
+
+on:
+  workflow_run:
+    workflows: ["Verify N.E.K.O Plugin"]
+    types: [completed]
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  collect:
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch failed job log
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -u
+          echo "run_id=$RUN_ID"
+          gh api "repos/$REPO/actions/runs/$RUN_ID/jobs" \
+            --jq '.jobs[] | "\(.id) \(.conclusion) \(.name)"' || true
+          JOB_ID=$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs" \
+            --jq '.jobs[] | select(.conclusion=="failure") | .id' | head -n1)
+          echo "failed_job=${JOB_ID:-none}"
+          : > full.log
+          if [ -n "${JOB_ID:-}" ]; then
+            gh api "repos/$REPO/actions/jobs/$JOB_ID/logs" > full.log 2>>err.txt || true
+          fi
+          if [ ! -s full.log ]; then
+            gh run view "$RUN_ID" --log > full.log 2>>err.txt || true
+          fi
+          if [ ! -s full.log ]; then
+            gh run view "$RUN_ID" --log-failed > full.log 2>>err.txt || true
+          fi
+          wc -c full.log || true
+          {
+            echo "== meta =="
+            echo "run_id=$RUN_ID"
+            echo "job_id=${JOB_ID:-none}"
+            echo "== stderr =="
+            cat err.txt 2>/dev/null || true
+            echo "== log tail (last 180KB) =="
+            tail -c 180000 full.log 2>/dev/null || true
+          } > ci-log.txt
+          wc -c ci-log.txt || true
+
+      - name: Push log to ci-log branch
+        run: |
+          git init -q .
+          git config user.name ci-diagnose
+          git config user.email ci-diagnose@users.noreply.github.com
+          git checkout -q -b ci-log
+          git add ci-log.txt
+          git commit -q -m "ci: log for run ${{ github.event.workflow_run.id }} [skip ci]" || exit 0
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ci-log
