@@ -16,10 +16,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
-from plugin.sdk.plugin import Err, Ok
 from plugin.plugins.dignity_guard import DignityGuardPlugin
 from plugin.plugins.dignity_guard.settings_guard import GuardState, Value
+from plugin.sdk.plugin import Err, Ok
 
 _PLUGIN_DIR = Path(__file__).resolve().parents[1]
 
@@ -539,6 +538,7 @@ def test_away_restore_recognises_the_preferences_proactive_mirror(sandbox) -> No
     那是**用户自己的东西**，恢复不该动。
     """
     import asyncio
+
     from plugin.plugins.dignity_guard import DignityGuardPlugin
     from plugin.plugins.dignity_guard.settings_guard import SettingChange, Value
 

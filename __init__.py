@@ -27,9 +27,10 @@ import secrets
 import sys
 import threading
 import time
-from pathlib import Path
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Mapping
+
 from plugin.sdk.plugin import (
     Err,
     NekoPluginBase,

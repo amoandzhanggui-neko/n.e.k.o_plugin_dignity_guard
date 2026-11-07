@@ -34,7 +34,6 @@ from types import SimpleNamespace
 from plugin.plugins.dignity_guard import DignityGuardPlugin, RoundOutcome
 from plugin.plugins.dignity_guard.settings_guard import (
     LEVEL_L1,
-    TIER_HIGH,
     Dispute,
     Evaluation,
     SettingChange,

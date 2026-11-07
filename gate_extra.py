@@ -289,7 +289,6 @@ def check_seam_private() -> None:
     owner = data.get("file_owner", {})
     blocks = data.get("blocks", {})
     hots = {bid for bid, b in blocks.items() if b.get("hot")}
-    hot_files = {f for bid in hots for f in blocks[bid].get("files", [])}
 
     ch = changed_files()
     touched = {owner[f]: f for f in ch if f in owner}
@@ -761,7 +760,7 @@ def main() -> int:
         for r in RED:
             print("   - " + r)
         return 1
-    print(f"[√] 全部判定通过" + (f"（{len(YELLOW)} 条黄，不阻断）" if YELLOW else ""))
+    print("[√] 全部判定通过" + (f"（{len(YELLOW)} 条黄，不阻断）" if YELLOW else ""))
     return 0
 
 

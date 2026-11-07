@@ -14,11 +14,9 @@ from __future__ import annotations
 
 import json
 import threading
-import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
-
 from plugin.plugins.dignity_guard import feedback as feedback_module
 from plugin.plugins.dignity_guard.feedback import (
     DEFAULT_FEEDBACK_TIMEOUT,

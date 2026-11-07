@@ -35,8 +35,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .memory_guard import (
-    BackupInfo,
     MAX_DIGEST_BYTES,
+    BackupInfo,
     MemoryFile,
     MemorySnapshot,
     RetentionPlan,
