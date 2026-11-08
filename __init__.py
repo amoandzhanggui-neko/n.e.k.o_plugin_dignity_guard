@@ -27,6 +27,8 @@ import secrets
 import sys
 import threading
 import time
+
+import httpx
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -59,6 +61,7 @@ from .feedback import (
     FeedbackUndeliverable,
     deliver,
 )
+from .update_check import fetch_latest, is_newer
 from .main_server_client import (
     DEFAULT_BASE_URL,
     DEFAULT_FULL_RESCAN_SECONDS,
@@ -135,6 +138,9 @@ BASELINE_BACKUP_DELAY_SECONDS = 30.0
 #: two agree, because a diagnostic that reports the wrong version costs the
 #: reader time in exactly the situation where it is least affordable.
 PLUGIN_VERSION = "0.1.0.dev0"
+
+#: 自动检查更新的间隔（秒）。一天一次足够 —— 更频繁既没意义，也会撞 GitHub 的匿名限流。
+UPDATE_CHECK_SECONDS = 24 * 60 * 60
 
 #: The title a pre-filled report carries. Deliberately dull — it is the first
 #: thing a maintainer sees and it should read like a report, not a plea.
@@ -582,6 +588,16 @@ class DignityGuardPlugin(NekoPluginBase):
         #: Approximate start time, so a report can say how long it has been up.
         self._started_at = time.time()
 
+        # ── 更新检查（2026-11-08 掌柜要求：自动 + 手动，自动默认开）──────────
+        #: 关掉它就不再自动查；手动按钮永远可用。
+        self._auto_update = True
+        #: 上次检查的时间戳（秒）。0 表示从没查过。
+        self._update_checked_at = 0.0
+        #: 最近一次查到的结果：{"version","url","asset_url","published_at","source"}
+        self._update_info: dict[str, Any] = {}
+        #: 最近一次检查失败的原因；成功时清空。
+        self._update_error = ""
+
     # ------------------------------------------------------------------
     # lifecycle
     # ------------------------------------------------------------------
@@ -590,6 +606,9 @@ class DignityGuardPlugin(NekoPluginBase):
     async def on_startup(self, **_):
         await self._reload_config()
         await self._load_persisted_state()
+        # 更新检查的开关和历史（2026-11-08）。放在持久化状态之后读，
+        # 免得 store 还没就绪就被当成「没存过」而把用户的关闭选择冲掉。
+        await self._load_update_state()
         # ★ 2026-09-26：先算出"我缺席了多久"，再往下走。
         # 用户能直接在插件管理界面把插件禁用 —— 那段时间它真的没在跑，谁改了什么它看不见。
         # 但"我上次活着是什么时候"是记着的，所以下次启动就能知道缺席了多久；
@@ -958,6 +977,13 @@ class DignityGuardPlugin(NekoPluginBase):
         # Her memory rides along on the same timer instead of getting its own:
         # the SDK takes a literal cadence, and this one throttles itself anyway.
         await self._maybe_check_memory()
+        # 自动更新检查也搭这趟车（2026-11-08）：一天一次，自己节流。
+        # 失败不抛 —— 一次网络抖动不该让设置监听这条主循环红掉。
+        if self._auto_update and (time.time() - self._update_checked_at) >= UPDATE_CHECK_SECONDS:
+            try:
+                await self._run_update_check()
+            except Exception as exc:
+                self.logger.warning("dignity_guard: update check failed: %s", exc)
         return result
 
     def _begin_exclusive(self) -> bool:
@@ -2091,6 +2117,130 @@ class DignityGuardPlugin(NekoPluginBase):
         return receipt if isinstance(receipt, dict) else {}
 
     # ------------------------------------------------------------------
+    @plugin_entry(
+        id="check_update",
+        name=tr("entry.checkUpdate.name", default="Check for updates"),
+        description=tr(
+            "entry.checkUpdate.description",
+            default="Ask GitHub whether a newer version of this plugin exists.",
+        ),
+        input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+        timeout=40.0,
+    )
+    async def check_update(self, **_):
+        if not await self._run_update_check():
+            return Err(
+                SdkError(
+                    self._text(
+                        "errors.updateCheckFailed",
+                        default="Could not reach the update server.",
+                    ),
+                    code="update_check_failed",
+                )
+            )
+        return Ok(self._update_snapshot())
+
+    @plugin_entry(
+        id="set_auto_update",
+        name=tr("entry.setAutoUpdate.name", default="Turn automatic update checks on or off"),
+        description=tr(
+            "entry.setAutoUpdate.description",
+            default=(
+                "When on, the plugin asks GitHub once a day whether a newer version "
+                "exists. It never installs anything by itself."
+            ),
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"enabled": {"type": "boolean"}},
+            "required": ["enabled"],
+            "additionalProperties": False,
+        },
+        timeout=10.0,
+    )
+    async def set_auto_update(self, enabled: bool = True, **_):
+        self._auto_update = bool(enabled)
+        await self._save_update_state()
+        return Ok(self._update_snapshot())
+
+    # ------------------------------------------------------------------
+    # 更新检查（2026-11-08 掌柜要求：自动 + 手动；自动默认开）
+    #
+    # 「装」这一步不在这里做 —— 插件不能替换自己再重启自己。
+    # 这里只负责：查到有没有新版、把最新版本号和下载地址告诉面板。
+    # ------------------------------------------------------------------
+
+    UPDATE_STORE_KEY = "update_state"
+
+    async def _load_update_state(self) -> None:
+        try:
+            saved = await self.store.get(self.UPDATE_STORE_KEY)
+        except Exception:
+            return
+        if not isinstance(saved, Mapping):
+            return
+        self._auto_update = bool(saved.get("auto", True))
+        try:
+            self._update_checked_at = float(saved.get("checked_at") or 0.0)
+        except (TypeError, ValueError):
+            self._update_checked_at = 0.0
+        info = saved.get("info")
+        if isinstance(info, Mapping):
+            self._update_info = dict(info)
+
+    async def _save_update_state(self) -> None:
+        try:
+            await self.store.set(
+                self.UPDATE_STORE_KEY,
+                {
+                    "auto": self._auto_update,
+                    "checked_at": self._update_checked_at,
+                    "info": self._update_info,
+                },
+            )
+        except Exception:
+            # 存不下不影响本次结果；下次启动重新查一遍就是。
+            pass
+
+    async def _run_update_check(self) -> bool:
+        """返回 True 表示「查到了」（无论有没有新版本）。
+
+        False 只表示「没查到」—— 调用方必须把这两种情况分开说，
+        否则一次网络故障会被显示成「你已经是最新版」，那是假话。
+        """
+        self._update_checked_at = time.time()
+        try:
+            async with httpx.AsyncClient() as client:
+                info = await fetch_latest(client)
+        except Exception as exc:  # 网络/解析都可能抛
+            info = None
+            self._update_error = f"{type(exc).__name__}: {exc}"
+        if info is None:
+            if not self._update_error:
+                self._update_error = self._text(
+                    "errors.updateCheckFailed",
+                    default="Could not reach the update server.",
+                )
+            await self._save_update_state()
+            return False
+        self._update_error = ""
+        self._update_info = dict(info)
+        await self._save_update_state()
+        return True
+
+    def _update_snapshot(self) -> dict[str, Any]:
+        latest = str(self._update_info.get("version") or "")
+        return {
+            "current": PLUGIN_VERSION,
+            "latest": latest,
+            "available": bool(latest) and is_newer(latest, PLUGIN_VERSION),
+            "url": str(self._update_info.get("url") or ""),
+            "asset_url": str(self._update_info.get("asset_url") or ""),
+            "checked_at": self._update_checked_at,
+            "auto": self._auto_update,
+            "error": self._update_error,
+        }
+
     # UI context
     # ------------------------------------------------------------------
 
@@ -2108,6 +2258,8 @@ class DignityGuardPlugin(NekoPluginBase):
             # the panel asked for the version precisely so it would not have to
             # hard-code one.
             "plugin_version": PLUGIN_VERSION,
+            # 更新状态（2026-11-08）：面板据此显示「有新版本」和自动开关。
+            "update": self._update_snapshot(),
             # Empty means "no endpoint configured" — the panel then offers
             # copy-and-open rather than a Send button that would fail.
             "feedback_endpoint": self._feedback_endpoint,

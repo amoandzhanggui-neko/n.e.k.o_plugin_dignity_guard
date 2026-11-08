@@ -289,5 +289,22 @@
   "ui.wish.copyFailed": "复制没成功，请手动选中下面这段复制（Ctrl+C）：",
   "ui.wish.open": "打开页面",
   "ui.roadmap.item1.title": "插件助手",
-  "ui.roadmap.item1.body": "让普通人也能做插件，也帮会写插件的人把插件做得更好。"
+  "ui.roadmap.item1.body": "让普通人也能做插件，也帮会写插件的人把插件做得更好。",
+  "ui.update.title": "更新",
+  "ui.update.current": "当前版本 {version}",
+  "ui.update.available": "有新版本 {version}。点「去更新」打开下载页，装好后在插件中心重装一次。",
+  "ui.update.upToDate": "已经是最新版。",
+  "ui.update.unknown": "还没检查过。",
+  "ui.update.error": "检查失败：{error}",
+  "ui.update.check": "检查更新",
+  "ui.update.auto": "每天自动检查（只检查，不自动安装）",
+  "ui.update.on": "已开",
+  "ui.update.off": "已关",
+  "ui.update.open": "去更新",
+  "entry.checkUpdate.name": "检查插件更新",
+  "entry.checkUpdate.description": "问一下 GitHub 上有没有新版本。",
+  "entry.setAutoUpdate.name": "开关自动更新检查",
+  "entry.setAutoUpdate.description": "打开后每天检查一次是否有新版本，但不会自己安装。",
+  "errors.updateCheckFailed": "连不上更新服务器。",
+  "ui.update.saved": "已记下。"
 }

@@ -289,5 +289,22 @@
   "ui.wish.copyFailed": "コピーできませんでした。下の文を手動で選択してコピーしてください（Ctrl+C）：",
   "ui.wish.open": "ページを開く",
   "ui.roadmap.item1.title": "プラグインアシスタント",
-  "ui.roadmap.item1.body": "誰でもプラグインを作れるように。そして作っている人がもっと良いものを作れるように。"
+  "ui.roadmap.item1.body": "誰でもプラグインを作れるように。そして作っている人がもっと良いものを作れるように。",
+  "ui.update.title": "アップデート",
+  "ui.update.current": "現在のバージョン {version}",
+  "ui.update.available": "新しいバージョン {version} があります。ダウンロードページを開き、プラグインセンターで再インストールしてください。",
+  "ui.update.upToDate": "最新バージョンです。",
+  "ui.update.unknown": "まだ確認していません。",
+  "ui.update.error": "確認に失敗しました：{error}",
+  "ui.update.check": "アップデートを確認",
+  "ui.update.auto": "毎日自動確認（確認のみ、自動インストールはしません）",
+  "ui.update.on": "オン",
+  "ui.update.off": "オフ",
+  "ui.update.open": "ダウンロードページを開く",
+  "entry.checkUpdate.name": "プラグインの更新を確認",
+  "entry.checkUpdate.description": "GitHub に新しいバージョンがあるか確認します。",
+  "entry.setAutoUpdate.name": "自動更新確認のオン・オフ",
+  "entry.setAutoUpdate.description": "オンの場合、1日1回確認します。自動ではインストールしません。",
+  "errors.updateCheckFailed": "更新サーバーに接続できませんでした。",
+  "ui.update.saved": "保存しました。"
 }

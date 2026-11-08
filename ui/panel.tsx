@@ -545,6 +545,19 @@ export default function DignityGuardPanel(
   }
 
   const canCheck = hasAction("check_now") && enabled
+  // 更新卡片（2026-11-08 掌柜要求）。后端只负责「查」和「记住开关」，
+  // 安装永远由人去插件中心点一次 —— 面板不假装自己能装。
+  const update = (state.update ?? {}) as {
+    current?: string
+    latest?: string
+    available?: boolean
+    url?: string
+    checked_at?: number
+    auto?: boolean
+    error?: string
+  }
+  const canCheckUpdate = hasAction("check_update")
+  const canToggleUpdate = hasAction("set_auto_update")
   // ⚠️ 2026-09-26：`canDecide` 已删除 —— "同意/不同意"不再是面板按钮（掌柜裁决），
   // 所以"插件是否可用"的判据改用 `canCheck`（那段提示的原文案是"请先启动插件"，
   // 用 canCheck 表达同一件事更准）。
@@ -1162,7 +1175,57 @@ export default function DignityGuardPanel(
           </Stack>
         </Card>
 
-        <Tip>{t("ui.trust.note")}</Tip>
+        {/* ★ 更新（2026-11-08 掌柜要求：自动 + 手动，自动默认开）。
+          「能查到」和「能装上」是两件事：这里只查、只记开关，
+          安装交给插件中心 —— 插件没有权限安全地替换自己。 */}
+      <Card title={t("ui.update.title")}>
+        <Stack>
+          <Inline align="center" justify="space-between" gap={8}>
+            <Text>{t("ui.update.current", { version: String(update.current || "") })}</Text>
+            {canCheckUpdate ? (
+              <Button
+                tone="default"
+                disabled={busy}
+                onClick={() => call("check_update", {}, t("ui.update.check"))}
+              >
+                {t("ui.update.check")}
+              </Button>
+            ) : null}
+          </Inline>
+          {update.error ? (
+            <Alert
+              tone="warning"
+              message={t("ui.update.error", { error: String(update.error) })}
+            />
+          ) : update.available ? (
+            <Text>{t("ui.update.available", { version: String(update.latest || "") })}</Text>
+          ) : update.checked_at ? (
+            <Text>{t("ui.update.upToDate")}</Text>
+          ) : (
+            <Text>{t("ui.update.unknown")}</Text>
+          )}
+          <Inline align="center" justify="space-between" gap={8}>
+            <Text>{t("ui.update.auto")}</Text>
+            {canToggleUpdate ? (
+              <Button
+                tone="default"
+                disabled={busy}
+                onClick={() =>
+                  call(
+                    "set_auto_update",
+                    { enabled: !update.auto },
+                    t("ui.update.saved"),
+                  )
+                }
+              >
+                {update.auto ? t("ui.update.on") : t("ui.update.off")}
+              </Button>
+            ) : null}
+          </Inline>
+        </Stack>
+      </Card>
+
+      <Tip>{t("ui.trust.note")}</Tip>
       </Stack>
 
       {/* ★ 新手引导弹窗（2026-09-26 掌柜要求补上）。
