@@ -307,5 +307,16 @@
   "entry.setAutoUpdate.description": "オンの場合、1日1回確認します。自動ではインストールしません。",
   "errors.updateCheckFailed": "更新サーバーに接続できませんでした。",
   "ui.update.saved": "保存しました。",
-  "actions.submitWish.label": "願いを送る"
+  "actions.submitWish.label": "願いを送る",
+  "ui.mode.human": "やさしい表示",
+  "ui.mode.pro": "技術表示",
+  "ui.field.hers": "彼女の{field}",
+  "ui.field.nickname": "名前",
+  "ui.field.selfName": "自称",
+  "ui.field.personality": "性格",
+  "ui.field.tone": "口調",
+  "ui.field.language": "会話の言語",
+  "ui.field.voice": "声",
+  "ui.field.appearance": "外見",
+  "ui.compat.note": "対応：N.E.K.O ホスト 0.1.x（プラグイン SDK >=0.1.0, <0.3.0）、hosted-tsx パネルが必要です。Windows 10/11 + ホスト 0.1.0 で動作確認済み。古いホストではパネルが表示されず、アクション一覧のみになります。"
 }

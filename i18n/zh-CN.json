@@ -307,5 +307,16 @@
   "entry.setAutoUpdate.description": "打开后每天检查一次是否有新版本，但不会自己安装。",
   "errors.updateCheckFailed": "连不上更新服务器。",
   "ui.update.saved": "已记下。",
-  "actions.submitWish.label": "把愿望发出去"
+  "actions.submitWish.label": "把愿望发出去",
+  "ui.mode.human": "人话版",
+  "ui.mode.pro": "专业版",
+  "ui.field.hers": "她的{field}",
+  "ui.field.nickname": "名字",
+  "ui.field.selfName": "自称",
+  "ui.field.personality": "性格",
+  "ui.field.tone": "语气",
+  "ui.field.language": "对话语言",
+  "ui.field.voice": "声音",
+  "ui.field.appearance": "外观",
+  "ui.compat.note": "适用：猫娘宿主 0.1.x（插件 SDK ≥0.1.0、<0.3.0），需要宿主支持 hosted-tsx 面板。已在 Windows 10/11 + 猫娘 0.1.0 实测；更老的宿主没有面板入口，只能看到动作列表。"
 }

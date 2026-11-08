@@ -173,12 +173,39 @@ function levelTag(level: string, t: (key: string) => string): string {
  * 瞎猜一个中文意思（比如把 settings 一律叫「设置」）反而让人对不上号。
  * 翻不动的就原样留着，并在卡片里附一行小字说明这串英文是什么（ui.path.help）。
  */
-function friendlyPath(path: string): string {
-  return path
+function friendlyPath(path: string, t: (key: string, vars?: Record<string, string>) => string): string {
+  // 人话版：只留最后一段，并翻成日常说法。
+  // 例：characters.YUI.昵称 → 「她的名字」；settings.userLanguage → 「对话语言」。
+  // 认不出来的字段原样显示最后一段 —— 宁可朴素，也不要编一个不存在的名字。
+  const segments = path
     .split(".")
     .map((seg) => seg.trim())
     .filter((seg) => seg !== "*" && seg !== "")
-    .join(" › ")
+  const last = segments[segments.length - 1] || path
+  const key = FIELD_LABEL_KEYS[last]
+  const label = key ? t(key) : last
+  if (segments[0] === "characters") {
+    return t("ui.field.hers", { field: label })
+  }
+  return label
+}
+
+/** 常见字段 → 日常说法。认不出来就退回原字段名。 */
+const FIELD_LABEL_KEYS: Record<string, string> = {
+  昵称: "ui.field.nickname",
+  nickname: "ui.field.nickname",
+  自称: "ui.field.selfName",
+  selfName: "ui.field.selfName",
+  性格: "ui.field.personality",
+  personality: "ui.field.personality",
+  语气: "ui.field.tone",
+  tone: "ui.field.tone",
+  语言: "ui.field.language",
+  userLanguage: "ui.field.language",
+  语音: "ui.field.voice",
+  voice: "ui.field.voice",
+  外观: "ui.field.appearance",
+  appearance: "ui.field.appearance",
 }
 
 /** 备份名（后端给的是 `20260926_104533` 这种时间戳）读成人话。
@@ -246,6 +273,28 @@ export default function DignityGuardPanel(
   // 2026-09-26：这些是排查问题才用得到的东西，普通人一打开面板看到
   // "轮询间隔 20s"只会困惑。收起来，需要的人点一下就能看全。
   const [diagOpen, setDiagOpen] = useState(false)
+  // ★ 人话 / 专业 两种看法（2026-11-08 掌柜要求）。
+  //   默认人话：路径写「她的名字」，不摆原始字段名、不摆诊断细节。
+  //   专业：露出 `characters.YUI.昵称` 这类精确名字与诊断区，方便和作者对齐。
+  //   选择存 localStorage —— 这是纯显示偏好，不该占插件的持久化状态。
+  const [proMode, setProMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("dignity_guard.pro_mode") === "1"
+    } catch {
+      return false
+    }
+  })
+  const toggleProMode = () => {
+    setProMode((prev) => {
+      const next = !prev
+      try {
+        localStorage.setItem("dignity_guard.pro_mode", next ? "1" : "0")
+      } catch {
+        // iframe 里可能没有存储权限；记不住就记不住，不影响本次显示。
+      }
+      return next
+    })
+  }
   const [fbText, setFbText] = useState("")
   const clipboard = useClipboard()
   const feedbackEndpoint = (state.feedback_endpoint || "").trim()
@@ -612,6 +661,11 @@ export default function DignityGuardPanel(
               · 反馈按钮本来就在这儿，两个入口并列，用户一眼看全"能问什么、能说什么"。
             两处都在 panel.tsx（插件自己的仓库）→ 上游升级不会冲掉。 */}
         <Inline align="center" justify="flex-end" gap={8}>
+          {/* 人话 / 专业 切换：默认人话；专业模式才露出原始字段名与诊断细节。
+              这是"给不同的人看"的开关，不是权限开关 —— 两边看到的事实一致。 */}
+          <Button tone="default" onClick={toggleProMode}>
+            {proMode ? t("ui.mode.pro") : t("ui.mode.human")}
+          </Button>
           <Button tone="default" onClick={() => setGuideOpen(true)}>
             {t("ui.guide.button")}
           </Button>
@@ -787,7 +841,7 @@ export default function DignityGuardPanel(
                   <Card key={item.path}>
                     <Stack gap={6}>
                       <Inline align="center" justify="space-between">
-                        <Text>{friendlyPath(item.path)}</Text>
+                        <Text>{friendlyPath(item.path, t)}</Text>
                         <Inline align="center" gap={8}>
                           {/* 原来这里直接印 item.level（L1/L2/L3）—— 对用户等于没说。
                               换成「最要紧 / 要紧 / 一般」，颜色含义不变。 */}
@@ -820,7 +874,11 @@ export default function DignityGuardPanel(
                           但用户要跟作者对齐"到底是哪一项"时，需要这串精确名字。
                           上面一行解释那个彩色徽章是什么意思（"最要紧/要紧/一般"）。 */}
                       <Tip>{t("ui.level.tag.help")}</Tip>
-                      <Tip>{`${t("ui.path.help")}（${item.path}）`}</Tip>
+                      {/* 原始路径只在专业模式显示：人话模式看到「她的名字」就够了，
+                          摆一串 characters.YUI.昵称 只会让人以为要懂代码。 */}
+                      {proMode ? (
+                        <Tip>{`${t("ui.path.help")}（${item.path}）`}</Tip>
+                      ) : null}
             {/* ★ 2026-09-26 掌柜的裁决：**去掉"能替她按同意/不同意"的按钮**，
                 改成**只读的状态显示**。
                 理由：同意或不同意是**她的意见**，用户点一下就等于替她表态了 ——
@@ -970,7 +1028,7 @@ export default function DignityGuardPanel(
                     <Inline align="center" justify="space-between" key={item.path}>
                       {/* 原来直接印文件路径（conversation.json 之类），普通人不知道那是啥。
                           去掉分隔点、保留中文段，至少能读成一串"东西的名字"。 */}
-                      <Text>{friendlyPath(item.path)}</Text>
+                      <Text>{friendlyPath(item.path, t)}</Text>
                       <StatusBadge
                         tone={item.kind === "removed" ? "danger" : "info"}
                         label={
@@ -1230,6 +1288,8 @@ export default function DignityGuardPanel(
         </Stack>
       </Card>
 
+      {/* 兼容范围写在界面上：用户装之前就该知道能不能用，而不是装完才发现。 */}
+      <Tip>{t("ui.compat.note")}</Tip>
       <Tip>{t("ui.trust.note")}</Tip>
       </Stack>
 

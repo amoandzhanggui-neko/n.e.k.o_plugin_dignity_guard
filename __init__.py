@@ -137,7 +137,7 @@ BASELINE_BACKUP_DELAY_SECONDS = 30.0
 #: Must match ``version`` in ``plugin.toml``. ``tests/test_smoke.py`` asserts the
 #: two agree, because a diagnostic that reports the wrong version costs the
 #: reader time in exactly the situation where it is least affordable.
-PLUGIN_VERSION = "0.1.0.dev0"
+PLUGIN_VERSION = "0.1.1"
 
 #: 自动检查更新的间隔（秒）。一天一次足够 —— 更频繁既没意义，也会撞 GitHub 的匿名限流。
 UPDATE_CHECK_SECONDS = 24 * 60 * 60

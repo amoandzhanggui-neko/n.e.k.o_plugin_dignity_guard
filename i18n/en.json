@@ -307,5 +307,16 @@
   "entry.setAutoUpdate.description": "When on, checks once a day. It never installs anything by itself.",
   "errors.updateCheckFailed": "Could not reach the update server.",
   "ui.update.saved": "Saved.",
-  "actions.submitWish.label": "Send a wish"
+  "actions.submitWish.label": "Send a wish",
+  "ui.mode.human": "Plain language",
+  "ui.mode.pro": "Technical",
+  "ui.field.hers": "Her {field}",
+  "ui.field.nickname": "name",
+  "ui.field.selfName": "self-reference",
+  "ui.field.personality": "personality",
+  "ui.field.tone": "tone",
+  "ui.field.language": "chat language",
+  "ui.field.voice": "voice",
+  "ui.field.appearance": "appearance",
+  "ui.compat.note": "Works with the N.E.K.O host 0.1.x (plugin SDK >=0.1.0, <0.3.0) and needs hosted-tsx support. Tested on Windows 10/11 with host 0.1.0; older hosts have no panel surface and only show the action list."
 }
