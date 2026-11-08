@@ -61,12 +61,19 @@ def _pick_asset(assets: Any) -> str:
     return ""
 
 
-async def fetch_latest(client: Any) -> dict[str, Any] | None:
+async def fetch_latest(client: Any, errors: list[str] | None = None) -> dict[str, Any] | None:
     """查最新版本。先看 release，没有 release 就退到 tag。
 
     返回 ``None`` 表示「没查到」—— 调用方必须把这种情况和「已是最新」区分开，
     否则一次网络故障会被说成「你已是最新版」，那是假的。
+
+    ``errors`` 用来回收失败原因：静默吞掉异常会让「为什么连不上」永远查不出来
+    （2026-11-08 实测踩过：面板只说"连不上"，日志里一个字都没有）。
     """
+    def note(text: str) -> None:
+        if errors is not None and len(errors) < 4:
+            errors.append(text)
+
     try:
         resp = await client.get(LATEST_RELEASE_URL, headers=_HEADERS, timeout=12.0)
         if getattr(resp, "status_code", 0) == 200:
@@ -80,8 +87,11 @@ async def fetch_latest(client: Any) -> dict[str, Any] | None:
                     "published_at": str(data.get("published_at") or ""),
                     "source": "release",
                 }
-    except Exception:
-        pass
+            note("release: 返回里没有 tag")
+        else:
+            note(f"release: HTTP {getattr(resp, 'status_code', '?')}")
+    except Exception as exc:
+        note(f"release: {type(exc).__name__}: {exc}")
 
     try:
         resp = await client.get(TAGS_URL, headers=_HEADERS, timeout=12.0)
@@ -98,7 +108,10 @@ async def fetch_latest(client: Any) -> dict[str, Any] | None:
                             "published_at": "",
                             "source": "tag",
                         }
-    except Exception:
-        pass
+            note("tag: 列表为空")
+        else:
+            note(f"tag: HTTP {getattr(resp, 'status_code', '?')}")
+    except Exception as exc:
+        note(f"tag: {type(exc).__name__}: {exc}")
 
     return None

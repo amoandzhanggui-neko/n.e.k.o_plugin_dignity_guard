@@ -279,7 +279,12 @@ export default function DignityGuardPanel(
   // 但冷却在 Python 侧是**各算各的**（`_last_wish_at`），见 WISHLIST_COOLDOWN_SECONDS。
   const [wishOpen, setWishOpen] = useState(false)
   const [wishText, setWishText] = useState("")
-  const canSendWish = feedbackEndpoint.length > 0 && hasAction("submit_wish")
+  // ★ 2026-11-08 掌柜报障：面板一直显示"作者还没配接收地址"、只给"打开页面"。
+//   根因是这里的判据把「前端拿到的 state」当成了「后端真的没配」——
+//   而 state 可能因为刷新/重载时序拿不到字段。改成：只要有提交动作就允许点发送，
+//   真有没配地址，后端会回 wish_endpoint_missing 并给出人话提示。
+//   「先试」比「猜」可靠：能发就发出去，不能发再由知道真相的那一端说原因。
+  const canSendWish = hasAction("submit_wish")
   const wishBytes =
     typeof TextEncoder !== "undefined" ? new TextEncoder().encode(wishText).length : wishText.length
   const wishKB = Math.round((wishBytes / 1024) * 10) / 10

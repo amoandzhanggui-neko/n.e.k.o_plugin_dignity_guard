@@ -2209,18 +2209,20 @@ class DignityGuardPlugin(NekoPluginBase):
         否则一次网络故障会被显示成「你已经是最新版」，那是假话。
         """
         self._update_checked_at = time.time()
+        errors: list[str] = []
         try:
             async with httpx.AsyncClient() as client:
-                info = await fetch_latest(client)
+                info = await fetch_latest(client, errors)
         except Exception as exc:  # 网络/解析都可能抛
             info = None
-            self._update_error = f"{type(exc).__name__}: {exc}"
+            errors.append(f"{type(exc).__name__}: {exc}")
         if info is None:
-            if not self._update_error:
-                self._update_error = self._text(
-                    "errors.updateCheckFailed",
-                    default="Could not reach the update server.",
-                )
+            # 把真实原因留下来（面板只显示第一行，完整内容进日志）。
+            self._update_error = errors[0] if errors else self._text(
+                "errors.updateCheckFailed",
+                default="Could not reach the update server.",
+            )
+            self.logger.warning("dignity_guard: update check failed: %s", " | ".join(errors) or "unknown")
             await self._save_update_state()
             return False
         self._update_error = ""
