@@ -10,11 +10,17 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 GITHUB_REPO = "amoandzhanggui-neko/n.e.k.o_plugin_dignity_guard"
 LATEST_RELEASE_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 TAGS_URL = f"https://api.github.com/repos/{GITHUB_REPO}/tags"
+#: 仓库一个 release / tag 都没有时的兜底：直接读 main 分支上的 plugin.toml 版本号。
+#: 2026-11-08 实测：`/releases/latest` 恒 404、`/tags` 返回空数组 —— 没有兜底
+#: 就只能一直说"连不上"，而其实网络是通的，只是没发过版本。
+RAW_TOML_URL = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/plugin.toml"
+_VERSION_RE = re.compile(r'^\s*version\s*=\s*"([^"]+)"', re.MULTILINE)
 
 #: GitHub 要求带 UA，否则匿名请求会被 403。
 _HEADERS = {
@@ -113,5 +119,24 @@ async def fetch_latest(client: Any, errors: list[str] | None = None) -> dict[str
             note(f"tag: HTTP {getattr(resp, 'status_code', '?')}")
     except Exception as exc:
         note(f"tag: {type(exc).__name__}: {exc}")
+
+    # 兜底：没有 release、也没有 tag 的仓库（当前就是），读 main 上的 plugin.toml。
+    try:
+        resp = await client.get(RAW_TOML_URL, headers=_HEADERS, timeout=12.0)
+        if getattr(resp, "status_code", 0) == 200:
+            match = _VERSION_RE.search(getattr(resp, "text", ""))
+            if match:
+                return {
+                    "version": match.group(1),
+                    "url": f"https://github.com/{GITHUB_REPO}",
+                    "asset_url": "",
+                    "published_at": "",
+                    "source": "repo",
+                }
+            note("repo: plugin.toml 里没有 version")
+        else:
+            note(f"repo: HTTP {getattr(resp, 'status_code', '?')}")
+    except Exception as exc:
+        note(f"repo: {type(exc).__name__}: {exc}")
 
     return None

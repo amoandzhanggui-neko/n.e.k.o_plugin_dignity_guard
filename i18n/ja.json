@@ -306,5 +306,6 @@
   "entry.setAutoUpdate.name": "自動更新確認のオン・オフ",
   "entry.setAutoUpdate.description": "オンの場合、1日1回確認します。自動ではインストールしません。",
   "errors.updateCheckFailed": "更新サーバーに接続できませんでした。",
-  "ui.update.saved": "保存しました。"
+  "ui.update.saved": "保存しました。",
+  "actions.submitWish.label": "願いを送る"
 }

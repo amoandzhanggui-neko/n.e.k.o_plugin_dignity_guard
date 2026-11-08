@@ -306,5 +306,6 @@
   "entry.setAutoUpdate.name": "Turn automatic update checks on or off",
   "entry.setAutoUpdate.description": "When on, checks once a day. It never installs anything by itself.",
   "errors.updateCheckFailed": "Could not reach the update server.",
-  "ui.update.saved": "Saved."
+  "ui.update.saved": "Saved.",
+  "actions.submitWish.label": "Send a wish"
 }

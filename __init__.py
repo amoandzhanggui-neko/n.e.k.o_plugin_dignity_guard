@@ -3389,6 +3389,15 @@ class DignityGuardPlugin(NekoPluginBase):
     #   ② **不带诊断报告** —— 一个愿望（"我想要 X"）不需要用户的运行环境，
     #      带上只会让收件箱更难读、信封更大；
     #   ③ 自己的 `_subject`，作者在邮箱里**一眼就能按标题分拣**。
+    @ui.action(
+        id="submit_wish",
+        label=tr("actions.submitWish.label", default="Send a wish"),
+        icon="💡",
+        tone="primary",
+        group="feedback",
+        order=91,
+        refresh_context=True,
+    )
     @plugin_entry(
         id="submit_wish",
         name="愿望单 · 我想要的功能",

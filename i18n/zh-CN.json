@@ -306,5 +306,6 @@
   "entry.setAutoUpdate.name": "开关自动更新检查",
   "entry.setAutoUpdate.description": "打开后每天检查一次是否有新版本，但不会自己安装。",
   "errors.updateCheckFailed": "连不上更新服务器。",
-  "ui.update.saved": "已记下。"
+  "ui.update.saved": "已记下。",
+  "actions.submitWish.label": "把愿望发出去"
 }
