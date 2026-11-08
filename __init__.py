@@ -2138,9 +2138,12 @@ class DignityGuardPlugin(NekoPluginBase):
     )
     async def check_update(self, **_):
         if not await self._run_update_check():
+            # 把真实原因带出去（面板只显示第一行，完整在日志）。
+            # 只回一句"连不上"等于让用户无从判断是自己的网、还是没发版本。
             return Err(
                 SdkError(
-                    self._text(
+                    self._update_error
+                    or self._text(
                         "errors.updateCheckFailed",
                         default="Could not reach the update server.",
                     ),
