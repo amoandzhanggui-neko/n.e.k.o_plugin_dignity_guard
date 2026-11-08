@@ -650,8 +650,8 @@ export default function DignityGuardPanel(
           弹窗就落到下方很远，遮罩也按 iframe 铺开 ⟹ 位置错、尺寸错。
           改法：顶部对齐 + 高度不超过 iframe，超了自己滚。不动宿主的 modal 结构。 */}
       <style>{`
-        .neko-modal-backdrop { place-items: start center !important; padding: 14px !important; }
-        .neko-modal { max-height: calc(100% - 28px) !important; overflow: auto !important; }
+        .neko-modal-backdrop { place-items: start center !important; padding: 72px 14px 24px !important; }
+        .neko-modal { max-height: calc(100% - 96px) !important; overflow: auto !important; }
       `}</style>
       <Stack>
         {/* ★ 右上角两个入口：「新手引导」+「反馈」（2026-09-26 掌柜定）。
@@ -811,10 +811,9 @@ export default function DignityGuardPanel(
 
         <Card title={t("ui.section.pending")}>
           <Stack>
-            {/* 这一条说明放在最前面：面板上的「同意 / 反对」按钮很容易被误解成
-                「我（用户）同意」，而它表达的其实是**她的态度** —— 用户是在替她表态。
-                点错了不是小事（会改掉她的立场），所以必须在按之前就说清楚。 */}
-            <Tip>{t("ui.pending.howTo")}</Tip>
+            {/* 2026-11-08 掌柜指出：这里原来有一句「下面两个按钮代表她的态度」，
+                但那两个按钮 2026-09-26 就按掌柜裁决删掉了 —— 说明文字在指空气，
+                反而让人以为要替她表态。删掉。 */}
             {/* ★「问问她」—— 让用户主动请她开口（2026-09-26）。
                 她不会自己说（用户可能关了"主动搭话"），但只要用户点了，她就说。
                 这样"她能不能说"就不再依赖那个开关，也不必替用户把它打开。 */}
