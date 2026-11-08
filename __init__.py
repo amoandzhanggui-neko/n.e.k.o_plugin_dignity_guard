@@ -2117,6 +2117,15 @@ class DignityGuardPlugin(NekoPluginBase):
         return receipt if isinstance(receipt, dict) else {}
 
     # ------------------------------------------------------------------
+    @ui.action(
+        id="check_update",
+        label=tr("entry.checkUpdate.name", default="Check for updates"),
+        icon="🔄",
+        tone="default",
+        group="update",
+        order=95,
+        refresh_context=True,
+    )
     @plugin_entry(
         id="check_update",
         name=tr("entry.checkUpdate.name", default="Check for updates"),
@@ -2140,6 +2149,15 @@ class DignityGuardPlugin(NekoPluginBase):
             )
         return Ok(self._update_snapshot())
 
+    @ui.action(
+        id="set_auto_update",
+        label=tr("entry.setAutoUpdate.name", default="Turn automatic update checks on or off"),
+        icon="⚙️",
+        tone="default",
+        group="update",
+        order=96,
+        refresh_context=True,
+    )
     @plugin_entry(
         id="set_auto_update",
         name=tr("entry.setAutoUpdate.name", default="Turn automatic update checks on or off"),
