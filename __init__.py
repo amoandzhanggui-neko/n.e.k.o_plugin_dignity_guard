@@ -86,6 +86,7 @@ from .memory_guard import (
 )
 from .settings_guard import (
     CONFIG_TIER_CEILING,
+    DEFAULT_GRANT_TTL_SECONDS,
     DEFAULT_LEVEL,
     DEFAULT_TIER,
     GUARD_SWITCH_PATH,
@@ -2413,7 +2414,11 @@ class DignityGuardPlugin(NekoPluginBase):
     async def accept_setting(
         self,
         path: str = "",
-        ttl_seconds: float | None = None,
+        # ★ 2026-11-08 掌柜定：默认不是永久，是 7 天。
+        #   原来默认 None（永久免问）—— 她点一次头，这个字段以后被改成什么都算
+        #   已授权，对「尊严守卫」这个立意太宽松。7 天后同一字段再被改会重新问她。
+        #   真要永久，显式传 ttl_seconds=None。
+        ttl_seconds: float | None = DEFAULT_GRANT_TTL_SECONDS,
         **_,
     ):
         target = str(path or "").strip()

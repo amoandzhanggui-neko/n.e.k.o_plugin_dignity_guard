@@ -144,7 +144,7 @@
   "ui.action.agree": "让她接受",
   "ui.toast.checked": "已经重新看过了。",
   "ui.toast.objected": "已记下她的反对。",
-  "ui.toast.accepted": "已记下她的同意。",
+  "ui.toast.accepted": "已记下她的同意。7 天内这项不会再问她；7 天后要是又被改，会重新问她。",
   "ui.section.authorized": "她已经认可的",
   "ui.empty.authorized.title": "还没有她认可的",
   "ui.empty.authorized.description": "她还没有点头同意过哪一项改动。",

@@ -144,7 +144,7 @@
   "ui.action.agree": "Let her accept",
   "ui.toast.checked": "Checked again.",
   "ui.toast.objected": "Her objection is on the record.",
-  "ui.toast.accepted": "Her consent is on the record.",
+  "ui.toast.accepted": "Her consent is on the record. She won't be asked about this one for 7 days; if it changes again after that, she will be.",
   "ui.section.authorized": "Settings she has accepted",
   "ui.empty.authorized.title": "No grants yet",
   "ui.empty.authorized.description": "She has not accepted any change yet.",

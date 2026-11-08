@@ -144,7 +144,7 @@
   "ui.action.agree": "彼女に受け入れさせる",
   "ui.toast.checked": "再確認しました。",
   "ui.toast.objected": "彼女の異議を記録しました。",
-  "ui.toast.accepted": "彼女の承諾を記録しました。",
+  "ui.toast.accepted": "彼女の承諾を記録しました。7日間はこの項目を再度尋ねません。7日後にまた変更されたら、もう一度尋ねます。",
   "ui.section.authorized": "彼女が承諾した設定",
   "ui.empty.authorized.title": "承諾はまだありません",
   "ui.empty.authorized.description": "彼女はまだどの変更も承諾していません。",

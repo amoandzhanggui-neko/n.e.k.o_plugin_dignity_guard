@@ -847,11 +847,22 @@ class Grant:
         }
 
 
+#: 「她同意」的默认有效期：7 天。
+#:
+#: 为什么不给永久：``accept()`` 的 ``ttl_seconds=None`` 是「永久免问」，
+#: 但一次点头不该等于把这个字段以后所有改动都授权掉 —— 对「尊严守卫」
+#: 这个立意来说太宽松，也不符合「一次同意只对应这一次改动」的直觉。
+#: 7 天后同一字段再被改，会重新问她。
+#: 需要显式永久授权时，仍然可以传 ``ttl_seconds=None``。
+DEFAULT_GRANT_TTL_SECONDS = 7 * 24 * 60 * 60
+
+
 class AuthorizationLedger:
     """Records who agreed to what, and until when.
 
     Consent is per path. A grant with ``expires_at=None`` never expires, which
-    is what "首次问一次，之后不再问" means; a TTL models "这一周内免问".
+    is what "首次问一次，之后不再问" means; a TTL models "这一周内免问"。
+    插件入口默认给 :data:`DEFAULT_GRANT_TTL_SECONDS`（7 天）。
     """
 
     def __init__(self, grants: Iterable[Grant] = ()) -> None:
