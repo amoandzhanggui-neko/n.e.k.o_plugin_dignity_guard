@@ -318,5 +318,8 @@
   "ui.field.language": "会話の言語",
   "ui.field.voice": "声",
   "ui.field.appearance": "外見",
-  "ui.compat.note": "対応：N.E.K.O ホスト 0.1.x（プラグイン SDK >=0.1.0, <0.3.0）、hosted-tsx パネルが必要です。Windows 10/11 + ホスト 0.1.0 で動作確認済み。古いホストではパネルが表示されず、アクション一覧のみになります。"
+  "ui.compat.note": "対応：N.E.K.O ホスト 0.1.x（プラグイン SDK >=0.1.0, <0.3.0）、hosted-tsx パネルが必要です。Windows 10/11 + ホスト 0.1.0 で動作確認済み。古いホストではパネルが表示されず、アクション一覧のみになります。",
+  "ui.update.checked": "アップデートを確認しました。",
+  "errors.tierNeedsConsent": "段位は直接変更できません。「{level}」への変更を記録しました。本人の同意後に反映されます。",
+  "messages.guardLevelUnchanged": "段位はすでに「{level}」です。"
 }

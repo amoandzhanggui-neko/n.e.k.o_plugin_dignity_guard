@@ -318,5 +318,8 @@
   "ui.field.language": "chat language",
   "ui.field.voice": "voice",
   "ui.field.appearance": "appearance",
-  "ui.compat.note": "Works with the N.E.K.O host 0.1.x (plugin SDK >=0.1.0, <0.3.0) and needs hosted-tsx support. Tested on Windows 10/11 with host 0.1.0; older hosts have no panel surface and only show the action list."
+  "ui.compat.note": "Works with the N.E.K.O host 0.1.x (plugin SDK >=0.1.0, <0.3.0) and needs hosted-tsx support. Tested on Windows 10/11 with host 0.1.0; older hosts have no panel surface and only show the action list.",
+  "ui.update.checked": "Checked for updates.",
+  "errors.tierNeedsConsent": "The guard level cannot be changed directly. Noted the request for '{level}' — it applies once she agrees.",
+  "messages.guardLevelUnchanged": "The guard level is already '{level}'."
 }

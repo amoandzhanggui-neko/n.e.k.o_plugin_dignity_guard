@@ -638,6 +638,16 @@ export default function DignityGuardPanel(
     return () => clearInterval(timer)
   }, [pendingDisable])
 
+  // 弹窗现在是页面内的一块卡片（见上方 <style> 的说明），不会自己跳到眼前，
+  // 所以打开时主动把它滚进来。滚不到也不算错（比如它已经在可视区）。
+  useEffect(() => {
+    if (!(guideOpen || fbOpen || wishOpen)) return
+    const node = document.querySelector(".neko-modal") as HTMLElement | null
+    if (node && typeof node.scrollIntoView === "function") {
+      node.scrollIntoView({ block: "start", behavior: "smooth" })
+    }
+  }, [guideOpen, fbOpen, wishOpen])
+
   return (
     <Page title={t("panel.title")} subtitle={t("ui.subtitle")}>
       {/* ★ 弹窗定位修正（2026-11-07 掌柜报障：点引导/反馈/愿望单会往下瞬移一大段，
@@ -650,8 +660,19 @@ export default function DignityGuardPanel(
           弹窗就落到下方很远，遮罩也按 iframe 铺开 ⟹ 位置错、尺寸错。
           改法：顶部对齐 + 高度不超过 iframe，超了自己滚。不动宿主的 modal 结构。 */}
       <style>{`
-        .neko-modal-backdrop { place-items: start center !important; padding: 72px 14px 24px !important; }
-        .neko-modal { max-height: calc(100% - 96px) !important; overflow: auto !important; }
+        /* 2026-11-08 第三次修：前两次都在调「浮层贴哪儿」，但浮层本身在这个
+           iframe 里就是错的 —— iframe 比可视区高，fixed 定位相对的是整个 iframe，
+           宿主页面再一滚，弹窗顶部就会被顶栏或 iframe 边界切掉。
+           这次直接取消浮层：弹窗变成**页面里的一块卡片**（static），
+           打开时用 scrollIntoView 把它滚到眼前。没有 fixed，就没有"被遮"。 */
+        .neko-modal-backdrop {
+          position: static !important;
+          inset: auto !important;
+          display: block !important;
+          padding: 12px 0 0 !important;
+          background: transparent !important;
+        }
+        .neko-modal { max-height: none !important; overflow: visible !important; margin: 0 auto !important; }
       `}</style>
       <Stack>
         {/* ★ 右上角两个入口：「新手引导」+「反馈」（2026-09-26 掌柜定）。
@@ -1248,7 +1269,7 @@ export default function DignityGuardPanel(
               <Button
                 tone="default"
                 disabled={busy}
-                onClick={() => call("check_update", {}, t("ui.update.check"))}
+                onClick={() => call("check_update", {}, t("ui.update.checked"))}
               >
                 {t("ui.update.check")}
               </Button>

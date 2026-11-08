@@ -318,5 +318,8 @@
   "ui.field.language": "对话语言",
   "ui.field.voice": "声音",
   "ui.field.appearance": "外观",
-  "ui.compat.note": "适用：猫娘宿主 0.1.x（插件 SDK ≥0.1.0、<0.3.0），需要宿主支持 hosted-tsx 面板。已在 Windows 10/11 + 猫娘 0.1.0 实测；更老的宿主没有面板入口，只能看到动作列表。"
+  "ui.compat.note": "适用：猫娘宿主 0.1.x（插件 SDK ≥0.1.0、<0.3.0），需要宿主支持 hosted-tsx 面板。已在 Windows 10/11 + 猫娘 0.1.0 实测；更老的宿主没有面板入口，只能看到动作列表。",
+  "ui.update.checked": "已检查更新。",
+  "errors.tierNeedsConsent": "档位不能直接改。已经替你记下：改成「{level}」，等她说同意。",
+  "messages.guardLevelUnchanged": "档位本来就是这个（{level}），没动。"
 }
