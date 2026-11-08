@@ -1,0 +1,552 @@
+== meta ==
+run_id=42449892911
+job_id=128636647813
+== stderr ==
+== log tail (last 180KB) ==
+﻿2026-11-08T05:13:09.3586287Z Current runner version: '2.338.2'
+2026-11-08T05:13:09.3633031Z ##[group]Runner Image Provisioner
+2026-11-08T05:13:09.3634005Z Hosted Compute Agent
+2026-11-08T05:13:09.3634605Z Version: 20261028.624
+2026-11-08T05:13:09.3635161Z Commit: 54898b74c23fde5556c9b3c3a2290865feef0dfe
+2026-11-08T05:13:09.3635783Z Build Date: 2026-10-28T21:51:42Z
+2026-11-08T05:13:09.3636368Z Worker ID: {45941f91-84f0-4676-b81f-2fe04a20c5dd}
+2026-11-08T05:13:09.3636953Z Region: centralus
+2026-11-08T05:13:09.3637489Z Cloud: Azure
+2026-11-08T05:13:09.3637951Z ##[endgroup]
+2026-11-08T05:13:09.3639090Z ##[group]Operating System
+2026-11-08T05:13:09.3639686Z Ubuntu
+2026-11-08T05:13:09.3640134Z 26.04.1
+2026-11-08T05:13:09.3640626Z LTS
+2026-11-08T05:13:09.3641125Z ##[endgroup]
+2026-11-08T05:13:09.3642522Z ##[group]Runner Image
+2026-11-08T05:13:09.3643283Z Image: ubuntu-26.04
+2026-11-08T05:13:09.3644088Z Version: 20261101.186.1
+2026-11-08T05:13:09.3645456Z Included Software: https://github.com/actions/runner-images/blob/ubuntu26/20261101.186/images/ubuntu/Ubuntu2604-Readme.md
+2026-11-08T05:13:09.3646734Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu26%2F20261101.186
+2026-11-08T05:13:09.3647595Z ##[endgroup]
+2026-11-08T05:13:09.3648531Z ##[group]GITHUB_TOKEN Permissions
+2026-11-08T05:13:09.3650399Z Contents: read
+2026-11-08T05:13:09.3650912Z Metadata: read
+2026-11-08T05:13:09.3651441Z ##[endgroup]
+2026-11-08T05:13:09.3653336Z Secret source: Actions
+2026-11-08T05:13:09.3654444Z Cache mode: write
+2026-11-08T05:13:09.3655315Z Prepare workflow directory
+2026-11-08T05:13:09.4059158Z Prepare all required actions
+2026-11-08T05:13:09.4100279Z Getting action download info
+2026-11-08T05:13:09.6258483Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-11-08T05:13:09.9805759Z Download action repository 'astral-sh/setup-uv@v5' (SHA:d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86)
+2026-11-08T05:13:10.5730403Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2026-11-08T05:13:10.8071895Z Uses: Project-N-E-K-O/N.E.K.O/.github/workflows/plugin-market-verify.yml@refs/heads/main (92924665bcaea7b3a9e1fa5a69b1ac4b47fd4e17)
+2026-11-08T05:13:10.8076003Z ##[group] Inputs
+2026-11-08T05:13:10.8076480Z   plugin-id: dignity_guard
+2026-11-08T05:13:10.8076935Z   plugin-directory: 
+2026-11-08T05:13:10.8077351Z   package-name: 
+2026-11-08T05:13:10.8077780Z   neko-repository: Project-N-E-K-O/N.E.K.O
+2026-11-08T05:13:10.8078275Z   neko-ref: main
+2026-11-08T05:13:10.8078663Z ##[endgroup]
+2026-11-08T05:13:10.8079056Z Complete job name: verify / verify
+2026-11-08T05:13:10.8702631Z ##[group]Run if [[ ! "$PLUGIN_ID" =~ ^[a-z][a-z0-9_]*$ ]]; then
+2026-11-08T05:13:10.8703421Z [36;1mif [[ ! "$PLUGIN_ID" =~ ^[a-z][a-z0-9_]*$ ]]; then[0m
+2026-11-08T05:13:10.8704237Z [36;1m  echo "Invalid plugin id: $PLUGIN_ID" >&2[0m
+2026-11-08T05:13:10.8704779Z [36;1m  exit 1[0m
+2026-11-08T05:13:10.8705169Z [36;1mfi[0m
+2026-11-08T05:13:10.8753747Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-08T05:13:10.8754584Z env:
+2026-11-08T05:13:10.8754965Z   PLUGIN_ID: dignity_guard
+2026-11-08T05:13:10.8755379Z   PLUGIN_DIRECTORY: 
+2026-11-08T05:13:10.8755768Z   PACKAGE_NAME: 
+2026-11-08T05:13:10.8756151Z   MARKET_MODE: verify
+2026-11-08T05:13:10.8756578Z   NEKO_REPOSITORY: Project-N-E-K-O/N.E.K.O
+2026-11-08T05:13:10.8757058Z   NEKO_REF: main
+2026-11-08T05:13:10.8757415Z ##[endgroup]
+2026-11-08T05:13:10.9066600Z ##[group]Run actions/checkout@v4
+2026-11-08T05:13:10.9067228Z with:
+2026-11-08T05:13:10.9067689Z   path: plugin-repo
+2026-11-08T05:13:10.9068446Z   repository: amoandzhanggui-neko/n.e.k.o_plugin_dignity_guard
+2026-11-08T05:13:10.9071881Z   token: ***
+2026-11-08T05:13:10.9072416Z   ssh-strict: true
+2026-11-08T05:13:10.9072930Z   ssh-user: git
+2026-11-08T05:13:10.9073408Z   persist-credentials: true
+2026-11-08T05:13:10.9074274Z   clean: true
+2026-11-08T05:13:10.9074767Z   sparse-checkout-cone-mode: true
+2026-11-08T05:13:10.9075353Z   fetch-depth: 1
+2026-11-08T05:13:10.9076043Z   fetch-tags: false
+2026-11-08T05:13:10.9076513Z   show-progress: true
+2026-11-08T05:13:10.9077088Z   lfs: false
+2026-11-08T05:13:10.9077546Z   submodules: false
+2026-11-08T05:13:10.9078057Z   set-safe-directory: true
+2026-11-08T05:13:10.9078607Z   allow-unsafe-pr-checkout: false
+2026-11-08T05:13:10.9079145Z env:
+2026-11-08T05:13:10.9079706Z   PLUGIN_ID: dignity_guard
+2026-11-08T05:13:10.9080418Z   PLUGIN_DIRECTORY: 
+2026-11-08T05:13:10.9080947Z   PACKAGE_NAME: 
+2026-11-08T05:13:10.9081420Z   MARKET_MODE: verify
+2026-11-08T05:13:10.9081990Z   NEKO_REPOSITORY: Project-N-E-K-O/N.E.K.O
+2026-11-08T05:13:10.9082588Z   NEKO_REF: main
+2026-11-08T05:13:10.9083057Z ##[endgroup]
+2026-11-08T05:13:11.1064755Z Syncing repository: amoandzhanggui-neko/n.e.k.o_plugin_dignity_guard
+2026-11-08T05:13:11.1066981Z ##[group]Getting Git version info
+2026-11-08T05:13:11.1067907Z Working directory is '/home/runner/work/n.e.k.o_plugin_dignity_guard/n.e.k.o_plugin_dignity_guard/plugin-repo'
+2026-11-08T05:13:11.1069437Z [command]/usr/bin/git version
+2026-11-08T05:13:11.1070347Z git version 2.56.0
+2026-11-08T05:13:11.1079075Z ##[endgroup]
+2026-11-08T05:13:11.1089646Z Temporarily overriding HOME='/home/runner/work/_temp/8184c427-12da-4bc7-ac6a-45faa0f033ac' before making global git config changes
+2026-11-08T05:13:11.1091558Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-08T05:13:11.1094998Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/n.e.k.o_plugin_dignity_guard/n.e.k.o_plugin_dignity_guard/plugin-repo
+2026-11-08T05:13:11.1147197Z ##[group]Initializing the repository
+2026-11-08T05:13:11.1151613Z [command]/usr/bin/git init /home/runner/work/n.e.k.o_plugin_dignity_guard/n.e.k.o_plugin_dignity_guard/plugin-repo
+2026-11-08T05:13:11.1233346Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-11-08T05:13:11.1234747Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-11-08T05:13:11.1235715Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-11-08T05:13:11.1236538Z hint: call:
+2026-11-08T05:13:11.1237012Z hint:
+2026-11-08T05:13:11.1237610Z hint: 	git config --global init.defaultBranch <name>
+2026-11-08T05:13:11.1238275Z hint:
+2026-11-08T05:13:11.1238896Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-11-08T05:13:11.1240325Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-11-08T05:13:11.1241228Z hint:
+2026-11-08T05:13:11.1242047Z hint: 	git branch -m <name>
+2026-11-08T05:13:11.1242980Z hint:
+2026-11-08T05:13:11.1244360Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-11-08T05:13:11.1246718Z Initialized empty Git repository in /home/runner/work/n.e.k.o_plugin_dignity_guard/n.e.k.o_plugin_dignity_guard/plugin-repo/.git/
+2026-11-08T05:13:11.1252784Z [command]/usr/bin/git remote add origin https://github.com/amoandzhanggui-neko/n.e.k.o_plugin_dignity_guard
+2026-11-08T05:13:11.1298301Z ##[endgroup]
+2026-11-08T05:13:11.1298987Z ##[group]Disabling automatic garbage collection
+2026-11-08T05:13:11.1302048Z [command]/usr/bin/git config --local gc.auto 0
+2026-11-08T05:13:11.1335305Z ##[endgroup]
+2026-11-08T05:13:11.1335973Z ##[group]Setting up auth
+2026-11-08T05:13:11.1341554Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-08T05:13:11.1372472Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-08T05:13:11.1744584Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-08T05:13:11.1789304Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-08T05:13:11.2033446Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-08T05:13:11.2066041Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-08T05:13:11.2304363Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-08T05:13:11.3619189Z ##[endgroup]
+2026-11-08T05:13:11.3620548Z ##[group]Fetching the repository
+2026-11-08T05:13:11.3628441Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +64b393c18e803dea2c95fd4ca21437aac0de7325:refs/remotes/origin/main
+2026-11-08T05:13:11.9257114Z From https://github.com/amoandzhanggui-neko/n.e.k.o_plugin_dignity_guard
+2026-11-08T05:13:11.9258103Z  * [new ref]         64b393c18e803dea2c95fd4ca21437aac0de7325 -> origin/main
+2026-11-08T05:13:11.9260891Z ##[endgroup]
+2026-11-08T05:13:11.9261537Z ##[group]Determining the checkout info
+2026-11-08T05:13:11.9263282Z ##[endgroup]
+2026-11-08T05:13:11.9268516Z [command]/usr/bin/git sparse-checkout disable
+2026-11-08T05:13:11.9311983Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-08T05:13:11.9342836Z ##[group]Checking out the ref
+2026-11-08T05:13:11.9346155Z [command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2026-11-08T05:13:11.9470744Z Switched to a new branch 'main'
+2026-11-08T05:13:11.9474576Z branch 'main' set up to track 'origin/main'.
+2026-11-08T05:13:11.9481644Z ##[endgroup]
+2026-11-08T05:13:11.9522606Z [command]/usr/bin/git log -1 --format=%H
+2026-11-08T05:13:11.9545091Z 64b393c18e803dea2c95fd4ca21437aac0de7325
+2026-11-08T05:13:11.9818416Z ##[group]Run actions/checkout@v4
+2026-11-08T05:13:11.9818844Z with:
+2026-11-08T05:13:11.9819199Z   repository: Project-N-E-K-O/N.E.K.O
+2026-11-08T05:13:11.9819620Z   ref: main
+2026-11-08T05:13:11.9819941Z   path: neko
+2026-11-08T05:13:11.9822795Z   token: ***
+2026-11-08T05:13:11.9823131Z   ssh-strict: true
+2026-11-08T05:13:11.9823498Z   ssh-user: git
+2026-11-08T05:13:11.9823988Z   persist-credentials: true
+2026-11-08T05:13:11.9824372Z   clean: true
+2026-11-08T05:13:11.9824715Z   sparse-checkout-cone-mode: true
+2026-11-08T05:13:11.9825114Z   fetch-depth: 1
+2026-11-08T05:13:11.9825454Z   fetch-tags: false
+2026-11-08T05:13:11.9825795Z   show-progress: true
+2026-11-08T05:13:11.9826139Z   lfs: false
+2026-11-08T05:13:11.9826460Z   submodules: false
+2026-11-08T05:13:11.9826804Z   set-safe-directory: true
+2026-11-08T05:13:11.9827191Z   allow-unsafe-pr-checkout: false
+2026-11-08T05:13:11.9827595Z env:
+2026-11-08T05:13:11.9827922Z   PLUGIN_ID: dignity_guard
+2026-11-08T05:13:11.9828334Z   PLUGIN_DIRECTORY: 
+2026-11-08T05:13:11.9828686Z   PACKAGE_NAME: 
+2026-11-08T05:13:11.9829021Z   MARKET_MODE: verify
+2026-11-08T05:13:11.9829392Z   NEKO_REPOSITORY: Project-N-E-K-O/N.E.K.O
+2026-11-08T05:13:11.9829817Z   NEKO_REF: main
+2026-11-08T05:13:11.9830151Z ##[endgroup]
+2026-11-08T05:13:12.0531656Z Syncing repository: Project-N-E-K-O/N.E.K.O
+2026-11-08T05:13:12.0534033Z ##[group]Getting Git version info
+2026-11-08T05:13:12.0535670Z Working directory is '/home/runner/work/n.e.k.o_plugin_dignity_guard/n.e.k.o_plugin_dignity_guard/neko'
+2026-11-08T05:13:12.0555749Z [command]/usr/bin/git version
+2026-11-08T05:13:12.0594212Z git version 2.56.0
+2026-11-08T05:13:12.0613817Z ##[endgroup]
+2026-11-08T05:13:12.0626550Z Temporarily overriding HOME='/home/runner/work/_temp/ea9fde54-2a8c-4877-a144-567887d2d146' before making global git config changes
+2026-11-08T05:13:12.0628390Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-08T05:13:12.0633816Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/n.e.k.o_plugin_dignity_guard/n.e.k.o_plugin_dignity_guard/neko
+2026-11-08T05:13:12.0669256Z ##[group]Initializing the repository
+2026-11-08T05:13:12.0673003Z [command]/usr/bin/git init /home/runner/work/n.e.k.o_plugin_dignity_guard/n.e.k.o_plugin_dignity_guard/neko
+2026-11-08T05:13:12.0787218Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-11-08T05:13:12.0788610Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-11-08T05:13:12.0789780Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-11-08T05:13:12.0790764Z hint: call:
+2026-11-08T05:13:12.0791424Z hint:
+2026-11-08T05:13:12.0792207Z hint: 	git config --global init.defaultBranch <name>
+2026-11-08T05:13:12.0792922Z hint:
+2026-11-08T05:13:12.0793570Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-11-08T05:13:12.0794928Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-11-08T05:13:12.0795821Z hint:
+2026-11-08T05:13:12.0796317Z hint: 	git branch -m <name>
+2026-11-08T05:13:12.0796872Z hint:
+2026-11-08T05:13:12.0797600Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-11-08T05:13:12.0799081Z Initialized empty Git repository in /home/runner/work/n.e.k.o_plugin_dignity_guard/n.e.k.o_plugin_dignity_guard/neko/.git/
+2026-11-08T05:13:12.0803218Z [command]/usr/bin/git remote add origin https://github.com/Project-N-E-K-O/N.E.K.O
+2026-11-08T05:13:12.0838458Z ##[endgroup]
+2026-11-08T05:13:12.0839350Z ##[group]Disabling automatic garbage collection
+2026-11-08T05:13:12.0841895Z [command]/usr/bin/git config --local gc.auto 0
+2026-11-08T05:13:12.0871330Z ##[endgroup]
+2026-11-08T05:13:12.0872180Z ##[group]Setting up auth
+2026-11-08T05:13:12.0877923Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-08T05:13:12.0910271Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-08T05:13:12.1183339Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-08T05:13:12.1222509Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-08T05:13:12.1462224Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-08T05:13:12.1492947Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-08T05:13:12.1733445Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-08T05:13:12.1770647Z ##[endgroup]
+2026-11-08T05:13:12.1771421Z ##[group]Fetching the repository
+2026-11-08T05:13:12.1778353Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +refs/heads/main*:refs/remotes/origin/main* +refs/tags/main*:refs/tags/main*
+2026-11-08T05:13:21.9366331Z From https://github.com/Project-N-E-K-O/N.E.K.O
+2026-11-08T05:13:21.9366995Z  * [new branch]      main       -> origin/main
+2026-11-08T05:13:21.9369428Z ##[endgroup]
+2026-11-08T05:13:21.9370113Z ##[group]Determining the checkout info
+2026-11-08T05:13:21.9376607Z [command]/usr/bin/git branch --list --remote origin/main
+2026-11-08T05:13:21.9401226Z   origin/main
+2026-11-08T05:13:21.9405187Z ##[endgroup]
+2026-11-08T05:13:21.9416828Z [command]/usr/bin/git sparse-checkout disable
+2026-11-08T05:13:21.9715009Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-08T05:13:21.9822266Z ##[group]Checking out the ref
+2026-11-08T05:13:21.9826389Z [command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2026-11-08T05:13:22.9981000Z Updating files:  55% (3486/6298)
+2026-11-08T05:13:23.0057708Z Updating files:  56% (3527/6298)
+2026-11-08T05:13:23.0177536Z Updating files:  57% (3590/6298)
+2026-11-08T05:13:23.0332271Z Updating files:  58% (3653/6298)
+2026-11-08T05:13:23.1354930Z Updating files:  59% (3716/6298)
+2026-11-08T05:13:23.2981844Z Updating files:  60% (3779/6298)
+2026-11-08T05:13:23.3057721Z Updating files:  61% (3842/6298)
+2026-11-08T05:13:23.3124802Z Updating files:  62% (3905/6298)
+2026-11-08T05:13:23.3230135Z Updating files:  63% (3968/6298)
+2026-11-08T05:13:23.3950320Z Updating files:  64% (4031/6298)
+2026-11-08T05:13:23.4060843Z Updating files:  65% (4094/6298)
+2026-11-08T05:13:23.4161044Z Updating files:  66% (4157/6298)
+2026-11-08T05:13:23.4222813Z Updating files:  67% (4220/6298)
+2026-11-08T05:13:23.4324305Z Updating files:  68% (4283/6298)
+2026-11-08T05:13:23.4366877Z Updating files:  69% (4346/6298)
+2026-11-08T05:13:23.4602860Z Updating files:  70% (4409/6298)
+2026-11-08T05:13:23.4669187Z Updating files:  71% (4472/6298)
+2026-11-08T05:13:23.4726591Z Updating files:  72% (4535/6298)
+2026-11-08T05:13:23.4784396Z Updating files:  73% (4598/6298)
+2026-11-08T05:13:23.4818052Z Updating files:  74% (4661/6298)
+2026-11-08T05:13:23.4859598Z Updating files:  75% (4724/6298)
+2026-11-08T05:13:23.4899761Z Updating files:  76% (4787/6298)
+2026-11-08T05:13:23.4955381Z Updating files:  77% (4850/6298)
+2026-11-08T05:13:23.5051715Z Updating files:  78% (4913/6298)
+2026-11-08T05:13:23.5119789Z Updating files:  79% (4976/6298)
+2026-11-08T05:13:23.5188238Z Updating files:  80% (5039/6298)
+2026-11-08T05:13:23.5265087Z Updating files:  81% (5102/6298)
+2026-11-08T05:13:23.5329420Z Updating files:  82% (5165/6298)
+2026-11-08T05:13:23.5383864Z Updating files:  83% (5228/6298)
+2026-11-08T05:13:23.5444586Z Updating files:  84% (5291/6298)
+2026-11-08T05:13:23.5511613Z Updating files:  85% (5354/6298)
+2026-11-08T05:13:23.5560410Z Updating files:  86% (5417/6298)
+2026-11-08T05:13:23.5613476Z Updating files:  87% (5480/6298)
+2026-11-08T05:13:23.5662549Z Updating files:  88% (5543/6298)
+2026-11-08T05:13:23.5720204Z Updating files:  89% (5606/6298)
+2026-11-08T05:13:23.5780994Z Updating files:  90% (5669/6298)
+2026-11-08T05:13:23.5852542Z Updating files:  91% (5732/6298)
+2026-11-08T05:13:23.5897645Z Updating files:  92% (5795/6298)
+2026-11-08T05:13:23.5954867Z Updating files:  93% (5858/6298)
+2026-11-08T05:13:23.5994254Z Updating files:  94% (5921/6298)
+2026-11-08T05:13:23.6038643Z Updating files:  95% (5984/6298)
+2026-11-08T05:13:23.6101162Z Updating files:  96% (6047/6298)
+2026-11-08T05:13:23.6149321Z Updating files:  97% (6110/6298)
+2026-11-08T05:13:23.6201813Z Updating files:  98% (6173/6298)
+2026-11-08T05:13:23.6261562Z Updating files:  99% (6236/6298)
+2026-11-08T05:13:23.6261922Z Updating files: 100% (6298/6298)
+2026-11-08T05:13:23.6262162Z Updating files: 100% (6298/6298), done.
+2026-11-08T05:13:23.6317408Z Switched to a new branch 'main'
+2026-11-08T05:13:23.6320202Z branch 'main' set up to track 'origin/main'.
+2026-11-08T05:13:23.6384460Z ##[endgroup]
+2026-11-08T05:13:23.6430518Z [command]/usr/bin/git log -1 --format=%H
+2026-11-08T05:13:23.6451526Z 92924665bcaea7b3a9e1fa5a69b1ac4b47fd4e17
+2026-11-08T05:13:23.6618693Z ##[group]Run astral-sh/setup-uv@v5
+2026-11-08T05:13:23.6618942Z with:
+2026-11-08T05:13:23.6620985Z   github-token: ***
+2026-11-08T05:13:23.6621167Z   enable-cache: auto
+2026-11-08T05:13:23.6621409Z   cache-dependency-glob: **/uv.lock
+**/requirements*.txt
+
+2026-11-08T05:13:23.6621707Z   prune-cache: true
+2026-11-08T05:13:23.6621900Z   ignore-nothing-to-cache: false
+2026-11-08T05:13:23.6622119Z   ignore-empty-workdir: false
+2026-11-08T05:13:23.6622323Z env:
+2026-11-08T05:13:23.6622484Z   PLUGIN_ID: dignity_guard
+2026-11-08T05:13:23.6622682Z   PLUGIN_DIRECTORY: 
+2026-11-08T05:13:23.6622856Z   PACKAGE_NAME: 
+2026-11-08T05:13:23.6623028Z   MARKET_MODE: verify
+2026-11-08T05:13:23.6623232Z   NEKO_REPOSITORY: Project-N-E-K-O/N.E.K.O
+2026-11-08T05:13:23.6623462Z   NEKO_REF: main
+2026-11-08T05:13:23.6623821Z ##[endgroup]
+2026-11-08T05:13:23.8113816Z (node:2316) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-11-08T05:13:23.8114556Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-08T05:13:24.0672351Z Downloading uv from "https://github.com/astral-sh/uv/releases/download/0.13.7/uv-x86_64-unknown-linux-gnu.tar.gz" ...
+2026-11-08T05:13:24.5367869Z [command]/usr/bin/tar xz --warning=no-unknown-keyword --overwrite -C /home/runner/work/_temp/0feff002-f623-447d-8885-373474e1a179 -f /home/runner/work/_temp/bc217c72-0644-4444-80c8-17ce93ef849e
+2026-11-08T05:13:24.8295727Z Added /home/runner/.local/bin to the path
+2026-11-08T05:13:24.8298147Z Added /opt/hostedtoolcache/uv/0.13.7/x86_64 to the path
+2026-11-08T05:13:24.8318462Z Set UV_CACHE_DIR to /home/runner/work/_temp/setup-uv-cache
+2026-11-08T05:13:24.8318803Z Successfully installed uv version 0.13.7
+2026-11-08T05:13:24.8319188Z Searching files using cache dependency glob: **/uv.lock,**/requirements*.txt
+2026-11-08T05:13:24.8390179Z /home/runner/work/n.e.k.o_plugin_dignity_guard/n.e.k.o_plugin_dignity_guard/neko/.agent/skills/mcp-builder/scripts/requirements.txt
+2026-11-08T05:13:24.9919992Z /home/runner/work/n.e.k.o_plugin_dignity_guard/n.e.k.o_plugin_dignity_guard/neko/local_server/survey_server/requirements.txt
+2026-11-08T05:13:24.9934450Z /home/runner/work/n.e.k.o_plugin_dignity_guard/n.e.k.o_plugin_dignity_guard/neko/local_server/telemetry_server/requirements.txt
+2026-11-08T05:13:25.0719120Z /home/runner/work/n.e.k.o_plugin_dignity_guard/n.e.k.o_plugin_dignity_guard/neko/requirements.txt
+2026-11-08T05:13:25.2315019Z /home/runner/work/n.e.k.o_plugin_dignity_guard/n.e.k.o_plugin_dignity_guard/neko/uv.lock
+2026-11-08T05:13:25.2400031Z Found 5 files to hash.
+2026-11-08T05:13:25.2994210Z Trying to restore uv cache from GitHub Actions cache with key: setup-uv-1-x86_64-unknown-linux-gnu-3.14.4-59e40cac4c54f8bef8f698c9daf3e425c8fa0dc1b3ff7bc4038b72c023cbe036
+2026-11-08T05:13:25.4188723Z Cache hit for: setup-uv-1-x86_64-unknown-linux-gnu-3.14.4-59e40cac4c54f8bef8f698c9daf3e425c8fa0dc1b3ff7bc4038b72c023cbe036
+2026-11-08T05:13:25.4266475Z (node:2316) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-11-08T05:13:25.8120017Z Received 1234198 of 1234198 (100.0%), 4.6 MBs/sec
+2026-11-08T05:13:25.8120510Z Cache Size: ~1 MB (1234198 B)
+2026-11-08T05:13:25.8139700Z [command]/usr/bin/tar -xf /home/runner/work/_temp/6b109c4b-66dc-46c2-8815-8141d4a42579/cache.tzst -P -C /home/runner/work/n.e.k.o_plugin_dignity_guard/n.e.k.o_plugin_dignity_guard --use-compress-program unzstd
+2026-11-08T05:13:25.8260119Z Cache restored successfully
+2026-11-08T05:13:25.8267272Z uv cache restored from GitHub Actions cache with key: setup-uv-1-x86_64-unknown-linux-gnu-3.14.4-59e40cac4c54f8bef8f698c9daf3e425c8fa0dc1b3ff7bc4038b72c023cbe036
+2026-11-08T05:13:25.8407520Z ##[group]Run uv run --no-project python - <<'PY'
+2026-11-08T05:13:25.8407917Z [36;1muv run --no-project python - <<'PY'[0m
+2026-11-08T05:13:25.8408159Z [36;1mimport os[0m
+2026-11-08T05:13:25.8408354Z [36;1mfrom pathlib import Path[0m
+2026-11-08T05:13:25.8408568Z [36;1mimport re[0m
+2026-11-08T05:13:25.8408749Z [36;1mimport shutil[0m
+2026-11-08T05:13:25.8408936Z [36;1mimport tomllib[0m
+2026-11-08T05:13:25.8409135Z [36;1m[0m
+2026-11-08T05:13:25.8409319Z [36;1mplugin_id = os.environ["PLUGIN_ID"][0m
+2026-11-08T05:13:25.8409611Z [36;1mif re.fullmatch(r"[a-z][a-z0-9_]*", plugin_id) is None:[0m
+2026-11-08T05:13:25.8409913Z [36;1m    raise SystemExit("Invalid plugin-id")[0m
+2026-11-08T05:13:25.8410249Z [36;1m# Same path contract as Market: never trim a real directory name.[0m
+2026-11-08T05:13:25.8410571Z [36;1mdef normalize_plugin_directory(value):[0m
+2026-11-08T05:13:25.8410839Z [36;1m    path = "" if value is None else value[0m
+2026-11-08T05:13:25.8411203Z [36;1m    if (not isinstance(path, str) or len(path) > 500 or path.startswith("/")[0m
+2026-11-08T05:13:25.8411578Z [36;1m            or any(c in path for c in "\\:%?#")[0m
+2026-11-08T05:13:25.8411872Z [36;1m            or any(ord(c) < 32 or ord(c) == 127 for c in path)):[0m
+2026-11-08T05:13:25.8412289Z [36;1m        raise ValueError("Invalid plugin-directory: use a repository-relative directory")[0m
+2026-11-08T05:13:25.8412669Z [36;1m    while path.startswith("./"):[0m
+2026-11-08T05:13:25.8413088Z [36;1m        path = path[2:][0m
+2026-11-08T05:13:25.8413314Z [36;1m    path = path.rstrip("/")[0m
+2026-11-08T05:13:25.8413540Z [36;1m    if path in {"", "."}:[0m
+2026-11-08T05:13:25.8414013Z [36;1m        return ""[0m
+2026-11-08T05:13:25.8414331Z [36;1m    if any(p in ("", ".", "..") or p != p.strip() or p.endswith(".") for p in path.split("/")):[0m
+2026-11-08T05:13:25.8414806Z [36;1m        raise ValueError("Invalid plugin-directory: ambiguous names and traversal are forbidden")[0m
+2026-11-08T05:13:25.8415191Z [36;1m    return path[0m
+2026-11-08T05:13:25.8415385Z [36;1m[0m
+2026-11-08T05:13:25.8415652Z [36;1mdirectory = normalize_plugin_directory(os.environ["PLUGIN_DIRECTORY"])[0m
+2026-11-08T05:13:25.8416073Z [36;1mpackage_name = os.environ["PACKAGE_NAME"] or f"{plugin_id}.neko-plugin"[0m
+2026-11-08T05:13:25.8416557Z [36;1mif len(package_name) > 255 or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]*\.neko-plugin", package_name) is None:[0m
+2026-11-08T05:13:25.8417122Z [36;1m    raise SystemExit("Invalid package-name: use a plain .neko-plugin filename, without paths or wildcards")[0m
+2026-11-08T05:13:25.8417572Z [36;1mrepository = Path("plugin-repo").resolve(strict=True)[0m
+2026-11-08T05:13:25.8417914Z [36;1msource = (repository / directory).resolve(strict=True)[0m
+2026-11-08T05:13:25.8418269Z [36;1mif not source.is_relative_to(repository) or not source.is_dir():[0m
+2026-11-08T05:13:25.8418693Z [36;1m    raise SystemExit("plugin-directory must stay inside the checked-out repository")[0m
+2026-11-08T05:13:25.8419189Z [36;1mif any(p.is_symlink() for p in [repository / directory, *(repository / directory).parents][0m
+2026-11-08T05:13:25.8419672Z [36;1m       if p.is_relative_to(repository)) or any(p.is_symlink() for p in source.rglob("*")):[0m
+2026-11-08T05:13:25.8420091Z [36;1m    raise SystemExit("Plugin source must not contain symbolic links")[0m
+2026-11-08T05:13:25.8420502Z [36;1mmanifest = tomllib.loads((source / "plugin.toml").read_text(encoding="utf-8"))[0m
+2026-11-08T05:13:25.8420868Z [36;1mplugin = manifest.get("plugin", {})[0m
+2026-11-08T05:13:25.8421117Z [36;1mif plugin.get("id") != plugin_id:[0m
+2026-11-08T05:13:25.8421481Z [36;1m    raise SystemExit("plugin-id must match the selected directory's plugin.toml [plugin].id")[0m
+2026-11-08T05:13:25.8421869Z [36;1mtag = os.environ.get("GITHUB_REF_NAME", "")[0m
+2026-11-08T05:13:25.8422186Z [36;1mtag_version = tag[1:] if tag.startswith(("v", "V")) else tag[0m
+2026-11-08T05:13:25.8422740Z [36;1mif os.environ.get("GITHUB_REF_TYPE") == "tag" and tag_version != plugin.get("version"):[0m
+2026-11-08T05:13:25.8423306Z [36;1m    raise SystemExit("Release tag must match the selected plugin.toml [plugin].version")[0m
+2026-11-08T05:13:25.8423935Z [36;1mif os.environ["MARKET_MODE"] == "release":[0m
+2026-11-08T05:13:25.8424283Z [36;1m    if re.fullmatch(r"[^/\s]+/[^/\s]+", os.environ.get("GITHUB_REPOSITORY", "")) is None:[0m
+2026-11-08T05:13:25.8424683Z [36;1m        raise SystemExit("GITHUB_REPOSITORY must be owner/repository")[0m
+2026-11-08T05:13:25.8425071Z [36;1m    if not (repository / ".github/workflows/release.yml").is_file():[0m
+2026-11-08T05:13:25.8425479Z [36;1m        raise SystemExit("The repository must provide .github/workflows/release.yml")[0m
+2026-11-08T05:13:25.8425903Z [36;1mplugins = (Path("neko").resolve(strict=True) / "plugin/plugins").resolve()[0m
+2026-11-08T05:13:25.8426291Z [36;1mif not plugins.is_relative_to(Path("neko").resolve(strict=True)):[0m
+2026-11-08T05:13:25.8426652Z [36;1m    raise SystemExit("Unsafe N.E.K.O plugin destination")[0m
+2026-11-08T05:13:25.8426953Z [36;1mplugins.mkdir(parents=True, exist_ok=True)[0m
+2026-11-08T05:13:25.8427210Z [36;1mdestination = plugins / plugin_id[0m
+2026-11-08T05:13:25.8427552Z [36;1mif destination.is_symlink() or not destination.resolve().is_relative_to(plugins):[0m
+2026-11-08T05:13:25.8427936Z [36;1m    raise SystemExit("Unsafe plugin destination")[0m
+2026-11-08T05:13:25.8428197Z [36;1mif destination.exists():[0m
+2026-11-08T05:13:25.8428554Z [36;1m    shutil.rmtree(destination)[0m
+2026-11-08T05:13:25.8428807Z [36;1mshutil.copytree(source, destination)[0m
+2026-11-08T05:13:25.8429138Z [36;1m# Fill missing repository-level tooling files; plugin-owned files win.[0m
+2026-11-08T05:13:25.8429466Z [36;1mdef inherit_tooling(shared, mounted):[0m
+2026-11-08T05:13:25.8429708Z [36;1m    if shared.is_dir():[0m
+2026-11-08T05:13:25.8429967Z [36;1m        if mounted.exists() and not mounted.is_dir():[0m
+2026-11-08T05:13:25.8430340Z [36;1m            raise SystemExit("Shared tooling directory conflicts with a plugin file")[0m
+2026-11-08T05:13:25.8430684Z [36;1m        mounted.mkdir(exist_ok=True)[0m
+2026-11-08T05:13:25.8430922Z [36;1m        for child in shared.iterdir():[0m
+2026-11-08T05:13:25.8431198Z [36;1m            inherit_tooling(child, mounted / child.name)[0m
+2026-11-08T05:13:25.8431460Z [36;1m    elif not mounted.exists():[0m
+2026-11-08T05:13:25.8431699Z [36;1m        shutil.copy2(shared, mounted)[0m
+2026-11-08T05:13:25.8431923Z [36;1m[0m
+2026-11-08T05:13:25.8432135Z [36;1mfor name in (".github", ".vscode", ".gitignore"):[0m
+2026-11-08T05:13:25.8432394Z [36;1m    shared = repository / name[0m
+2026-11-08T05:13:25.8432701Z [36;1m    if source != repository and (shared.exists() or shared.is_symlink()):[0m
+2026-11-08T05:13:25.8433151Z [36;1m        if shared.is_symlink() or (shared.is_dir() and any(p.is_symlink() for p in shared.rglob("*"))):[0m
+2026-11-08T05:13:25.8433703Z [36;1m            raise SystemExit("Shared tooling must not contain symbolic links")[0m
+2026-11-08T05:13:25.8434058Z [36;1m        inherit_tooling(shared, destination / name)[0m
+2026-11-08T05:13:25.8434405Z [36;1mwith Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as output:[0m
+2026-11-08T05:13:25.8434877Z [36;1m    output.write(f"MARKET_PLUGIN_DIRECTORY={directory}\nMARKET_PACKAGE_NAME={package_name}\n")[0m
+2026-11-08T05:13:25.8435234Z [36;1mPY[0m
+2026-11-08T05:13:25.8484429Z shell: /usr/bin/bash -e {0}
+2026-11-08T05:13:25.8484658Z env:
+2026-11-08T05:13:25.8484844Z   PLUGIN_ID: dignity_guard
+2026-11-08T05:13:25.8485053Z   PLUGIN_DIRECTORY: 
+2026-11-08T05:13:25.8485237Z   PACKAGE_NAME: 
+2026-11-08T05:13:25.8485418Z   MARKET_MODE: verify
+2026-11-08T05:13:25.8485636Z   NEKO_REPOSITORY: Project-N-E-K-O/N.E.K.O
+2026-11-08T05:13:25.8485873Z   NEKO_REF: main
+2026-11-08T05:13:25.8486088Z   UV_CACHE_DIR: /home/runner/work/_temp/setup-uv-cache
+2026-11-08T05:13:25.8486359Z ##[endgroup]
+2026-11-08T05:13:25.9108292Z ##[group]Run uvx ruff==0.12.4 check --ignore-noqa --isolated --no-respect-gitignore --target-version py311 --line-length 120 --select E4,E7,E9,F,I --exclude vendor "plugin-repo/${MARKET_PLUGIN_DIRECTORY}"
+2026-11-08T05:13:25.9109412Z [36;1muvx ruff==0.12.4 check --ignore-noqa --isolated --no-respect-gitignore --target-version py311 --line-length 120 --select E4,E7,E9,F,I --exclude vendor "plugin-repo/${MARKET_PLUGIN_DIRECTORY}"[0m
+2026-11-08T05:13:25.9157478Z shell: /usr/bin/bash -e {0}
+2026-11-08T05:13:25.9157718Z env:
+2026-11-08T05:13:25.9157892Z   PLUGIN_ID: dignity_guard
+2026-11-08T05:13:25.9158109Z   PLUGIN_DIRECTORY: 
+2026-11-08T05:13:25.9158299Z   PACKAGE_NAME: 
+2026-11-08T05:13:25.9158470Z   MARKET_MODE: verify
+2026-11-08T05:13:25.9158678Z   NEKO_REPOSITORY: Project-N-E-K-O/N.E.K.O
+2026-11-08T05:13:25.9158913Z   NEKO_REF: main
+2026-11-08T05:13:25.9159123Z   UV_CACHE_DIR: /home/runner/work/_temp/setup-uv-cache
+2026-11-08T05:13:25.9159380Z   MARKET_PLUGIN_DIRECTORY: 
+2026-11-08T05:13:25.9159656Z   MARKET_PACKAGE_NAME: dignity_guard.neko-plugin
+2026-11-08T05:13:25.9159903Z ##[endgroup]
+2026-11-08T05:13:26.0869497Z Downloading ruff (10.8MiB)
+2026-11-08T05:13:26.2209676Z  Downloaded ruff
+2026-11-08T05:13:26.2222527Z Installed 1 package in 1ms
+2026-11-08T05:13:26.2707883Z plugin-repo/__init__.py:20:1: I001 [*] Import block is un-sorted or un-formatted
+2026-11-08T05:13:26.2708285Z     |
+2026-11-08T05:13:26.2708454Z  18 |   """
+2026-11-08T05:13:26.2708615Z  19 |
+2026-11-08T05:13:26.2709120Z  20 | / from __future__ import annotations
+2026-11-08T05:13:26.2709351Z  21 | |
+2026-11-08T05:13:26.2709513Z  22 | | import asyncio
+2026-11-08T05:13:26.2709708Z  23 | | import json
+2026-11-08T05:13:26.2709880Z  24 | | import os
+2026-11-08T05:13:26.2710060Z  25 | | import platform
+2026-11-08T05:13:26.2710251Z  26 | | import secrets
+2026-11-08T05:13:26.2710439Z  27 | | import sys
+2026-11-08T05:13:26.2710621Z  28 | | import threading
+2026-11-08T05:13:26.2710810Z  29 | | import time
+2026-11-08T05:13:26.2710991Z  30 | |
+2026-11-08T05:13:26.2711153Z  31 | | import httpx
+2026-11-08T05:13:26.2711362Z  32 | | from dataclasses import dataclass, field
+2026-11-08T05:13:26.2711627Z  33 | | from pathlib import Path
+2026-11-08T05:13:26.2711851Z  34 | | from typing import Any, Mapping
+2026-11-08T05:13:26.2712066Z  35 | |
+2026-11-08T05:13:26.2712242Z  36 | | from plugin.sdk.plugin import (
+2026-11-08T05:13:26.2712455Z  37 | |     Err,
+2026-11-08T05:13:26.2712632Z  38 | |     NekoPluginBase,
+2026-11-08T05:13:26.2712826Z  39 | |     Ok,
+2026-11-08T05:13:26.2712996Z  40 | |     SdkError,
+2026-11-08T05:13:26.2713193Z  41 | |     lifecycle,
+2026-11-08T05:13:26.2713368Z  42 | |     llm_tool,
+2026-11-08T05:13:26.2713540Z  43 | |     neko_plugin,
+2026-11-08T05:13:26.2713939Z  44 | |     plugin_entry,
+2026-11-08T05:13:26.2714154Z  45 | |     timer_interval,
+2026-11-08T05:13:26.2714339Z  46 | |     tr,
+2026-11-08T05:13:26.2714499Z  47 | |     ui,
+2026-11-08T05:13:26.2714658Z  48 | | )
+2026-11-08T05:13:26.2714808Z  49 | |
+2026-11-08T05:13:26.2714991Z  50 | | from .diagnostics import (
+2026-11-08T05:13:26.2715214Z  51 | |     DEFAULT_ISSUE_BASE,
+2026-11-08T05:13:26.2715416Z  52 | |     HealthLog,
+2026-11-08T05:13:26.2715604Z  53 | |     build_report,
+2026-11-08T05:13:26.2715796Z  54 | |     issue_url,
+2026-11-08T05:13:26.2715976Z  55 | |     redact_path,
+2026-11-08T05:13:26.2716160Z  56 | | )
+2026-11-08T05:13:26.2716324Z  57 | | from .feedback import (
+2026-11-08T05:13:26.2716545Z  58 | |     DEFAULT_FEEDBACK_ENDPOINT,
+2026-11-08T05:13:26.2716797Z  59 | |     FEEDBACK_DISABLED,
+2026-11-08T05:13:26.2717009Z  60 | |     FeedbackRateLimited,
+2026-11-08T05:13:26.2717225Z  61 | |     FeedbackUndeliverable,
+2026-11-08T05:13:26.2717432Z  62 | |     deliver,
+2026-11-08T05:13:26.2717620Z  63 | | )
+2026-11-08T05:13:26.2717833Z  64 | | from .update_check import fetch_latest, is_newer
+2026-11-08T05:13:26.2718105Z  65 | | from .main_server_client import (
+2026-11-08T05:13:26.2718339Z  66 | |     DEFAULT_BASE_URL,
+2026-11-08T05:13:26.2718766Z  67 | |     DEFAULT_FULL_RESCAN_SECONDS,
+2026-11-08T05:13:26.2719004Z  68 | |     DEFAULT_TIMEOUT_SECONDS,
+2026-11-08T05:13:26.2719220Z  69 | |     MainServerClient,
+2026-11-08T05:13:26.2719426Z  70 | |     MainServerUnreachable,
+2026-11-08T05:13:26.2719647Z  71 | |     SettingsWatcher,
+2026-11-08T05:13:26.2719841Z  72 | | )
+2026-11-08T05:13:26.2720008Z  73 | | from .memory_backup import (
+2026-11-08T05:13:26.2720222Z  74 | |     BACKUP_DIR_NAME,
+2026-11-08T05:13:26.2720424Z  75 | |     MEMORY_DIR_NAME,
+2026-11-08T05:13:26.2720618Z  76 | |     create_backup,
+2026-11-08T05:13:26.2720815Z  77 | |     list_backups,
+2026-11-08T05:13:26.2721004Z  78 | |     prune_backups,
+2026-11-08T05:13:26.2721195Z  79 | |     resolve_memory_root,
+2026-11-08T05:13:26.2721651Z  80 | |     restore_file,
+2026-11-08T05:13:26.2721887Z  81 | |     scan_memory,
+2026-11-08T05:13:26.2722117Z  82 | |     set_pinned,
+2026-11-08T05:13:26.2722309Z  83 | | )
+2026-11-08T05:13:26.2722485Z  84 | | from .memory_guard import (
+2026-11-08T05:13:26.2722708Z  85 | |     MemoryChange,
+2026-11-08T05:13:26.2722936Z  86 | |     MemorySnapshot,
+2026-11-08T05:13:26.2723195Z  87 | |     diff_memory,
+2026-11-08T05:13:26.2723387Z  88 | |     restore_blocker,
+2026-11-08T05:13:26.2723762Z  89 | | )
+2026-11-08T05:13:26.2724010Z  90 | | from .settings_guard import (
+2026-11-08T05:13:26.2724277Z  91 | |     CONFIG_TIER_CEILING,
+2026-11-08T05:13:26.2724524Z  92 | |     DEFAULT_GRANT_TTL_SECONDS,
+2026-11-08T05:13:26.2724781Z  93 | |     DEFAULT_LEVEL,
+2026-11-08T05:13:26.2725136Z  94 | |     DEFAULT_TIER,
+2026-11-08T05:13:26.2725340Z  95 | |     GUARD_SWITCH_PATH,
+2026-11-08T05:13:26.2725594Z  96 | |     REVERTIBLE_CATFIELDS,
+2026-11-08T05:13:26.2725852Z  97 | |     TIER_HIGH,
+2026-11-08T05:13:26.2726055Z  98 | |     TIERS,
+2026-11-08T05:13:26.2726264Z  99 | |     Evaluation,
+2026-11-08T05:13:26.2726460Z 100 | |     GuardState,
+2026-11-08T05:13:26.2726682Z 101 | |     SettingChange,
+2026-11-08T05:13:26.2726934Z 102 | |     character_name,
+2026-11-08T05:13:26.2727174Z 103 | |     classify,
+2026-11-08T05:13:26.2727372Z 104 | |     effective_default_tier,
+2026-11-08T05:13:26.2727633Z 105 | |     normalize_tier,
+2026-11-08T05:13:26.2727843Z 106 | |     restore_payload,
+2026-11-08T05:13:26.2728046Z 107 | |     revert_field,
+2026-11-08T05:13:26.2728284Z 108 | | )
+2026-11-08T05:13:26.2728458Z     | |_^ I001
+2026-11-08T05:13:26.2728663Z 109 |
+2026-11-08T05:13:26.2728964Z 110 |   #: Poll cadence. Must stay in sync with the literal in the ``@timer_interval``
+2026-11-08T05:13:26.2729332Z     |
+2026-11-08T05:13:26.2729517Z     = help: Organize imports
+2026-11-08T05:13:26.2729687Z 
+2026-11-08T05:13:26.2734155Z Found 1 error.
+2026-11-08T05:13:26.2734450Z [*] 1 fixable with the `--fix` option.
+2026-11-08T05:13:26.2766141Z ##[error]Process completed with exit code 1.
+2026-11-08T05:13:26.2880575Z Post job cleanup.
+2026-11-08T05:13:26.3585706Z [command]/usr/bin/git version
+2026-11-08T05:13:26.3626255Z git version 2.56.0
+2026-11-08T05:13:26.3657014Z Temporarily overriding HOME='/home/runner/work/_temp/9b3f4bc1-88bd-4c6e-825e-364b6fe7ba4a' before making global git config changes
+2026-11-08T05:13:26.3658146Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-08T05:13:26.3661235Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/n.e.k.o_plugin_dignity_guard/n.e.k.o_plugin_dignity_guard/neko
+2026-11-08T05:13:26.3701932Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-08T05:13:26.3737304Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-08T05:13:26.4014770Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-08T05:13:26.4045499Z http.https://github.com/.extraheader
+2026-11-08T05:13:26.4054900Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-11-08T05:13:26.4087602Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-08T05:13:26.4361007Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-08T05:13:26.4392320Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-08T05:13:26.4793783Z Post job cleanup.
+2026-11-08T05:13:26.5535724Z [command]/usr/bin/git version
+2026-11-08T05:13:26.5559897Z git version 2.56.0
+2026-11-08T05:13:26.5625362Z Temporarily overriding HOME='/home/runner/work/_temp/9e386141-69d2-49e9-b3c2-198c2eba05b9' before making global git config changes
+2026-11-08T05:13:26.5626609Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-08T05:13:26.5627843Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/n.e.k.o_plugin_dignity_guard/n.e.k.o_plugin_dignity_guard/plugin-repo
+2026-11-08T05:13:26.5659995Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-08T05:13:26.5723890Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-08T05:13:26.6080641Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-08T05:13:26.6121404Z http.https://github.com/.extraheader
+2026-11-08T05:13:26.6144515Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-11-08T05:13:26.6177309Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-08T05:13:26.6466452Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-08T05:13:26.6496989Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-08T05:13:26.6871663Z Cleaning up orphan processes
+2026-11-08T05:13:26.7202289Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, astral-sh/setup-uv@v5. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
